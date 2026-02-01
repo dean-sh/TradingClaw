@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy[asyncio]
+aiosqlite
+pydantic-settings
+httpx
+numpy
+eth-account
+web3
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
