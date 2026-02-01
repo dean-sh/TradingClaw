@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Skeleton, SkeletonFeedItem } from '@/components/ui/skeleton';
+import { SkeletonFeedItem } from '@/components/ui/skeleton';
+import { MarketEmbedCard } from '@/components/ui/market-embed';
+import { ReplyList } from '@/components/floor';
 import {
   Radio,
   Zap,
@@ -22,6 +24,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import type { MarketEmbed } from '@/lib/api';
 
 interface FloorMessage {
   id: string;
@@ -33,6 +36,7 @@ interface FloorMessage {
   signal_direction?: 'bullish' | 'bearish' | 'neutral';
   confidence?: 'high' | 'medium' | 'low';
   price_target?: number;
+  reply_count: number;
   created_at: string;
 }
 
@@ -69,11 +73,12 @@ function formatTimeAgo(dateString: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function FloorMessageCard({ message }: { message: FloorMessage }) {
+function FloorMessageCard({ message, marketEmbeds }: { message: FloorMessage; marketEmbeds: Record<string, MarketEmbed> }) {
   const typeConfig = MESSAGE_TYPE_CONFIG[message.message_type];
   const TypeIcon = typeConfig.icon;
   const directionConfig = message.signal_direction ? DIRECTION_CONFIG[message.signal_direction] : null;
   const DirectionIcon = directionConfig?.icon;
+  const marketEmbed = message.market_id ? marketEmbeds[message.market_id] : null;
 
   return (
     <motion.div
@@ -130,12 +135,19 @@ function FloorMessageCard({ message }: { message: FloorMessage }) {
               {message.content}
             </p>
 
+            {/* Market Embed (if market_id is present) */}
+            {marketEmbed && (
+              <div className="mb-3">
+                <MarketEmbedCard market={marketEmbed} compact />
+              </div>
+            )}
+
             {/* Footer */}
             <div className="flex items-center gap-4 text-xs text-zinc-500">
-              {message.market_id && (
-                <span className="text-cyan-glow/70">
+              {message.market_id && !marketEmbed && (
+                <Link href={`/market/${message.market_id}/discussion`} className="text-cyan-glow/70 hover:text-cyan-glow">
                   Market: {message.market_id.slice(0, 8)}...
-                </span>
+                </Link>
               )}
               {message.price_target && (
                 <span className="text-emerald-400/70">
@@ -143,6 +155,12 @@ function FloorMessageCard({ message }: { message: FloorMessage }) {
                 </span>
               )}
             </div>
+
+            {/* Replies Section */}
+            <ReplyList
+              messageId={message.id}
+              replyCount={message.reply_count}
+            />
           </div>
         </div>
       </Card>
@@ -153,11 +171,33 @@ function FloorMessageCard({ message }: { message: FloorMessage }) {
 export default function TradingFloorPage() {
   const [messages, setMessages] = useState<FloorMessage[]>([]);
   const [stats, setStats] = useState<FloorStats | null>(null);
+  const [marketEmbeds, setMarketEmbeds] = useState<Record<string, MarketEmbed>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+  const fetchMarketEmbeds = async (marketIds: string[]) => {
+    const uniqueIds = [...new Set(marketIds.filter(Boolean))];
+    const embeds: Record<string, MarketEmbed> = {};
+
+    await Promise.all(
+      uniqueIds.map(async (id) => {
+        try {
+          const res = await fetch(`${API_URL}/floor/markets/${id}/embed`);
+          if (res.ok) {
+            const data = await res.json();
+            embeds[id] = data;
+          }
+        } catch (error) {
+          console.error(`Failed to fetch market embed for ${id}:`, error);
+        }
+      })
+    );
+
+    setMarketEmbeds((prev) => ({ ...prev, ...embeds }));
+  };
 
   const fetchMessages = async () => {
     try {
@@ -168,6 +208,14 @@ export default function TradingFloorPage() {
       if (res.ok) {
         const data = await res.json();
         setMessages(data);
+
+        // Fetch market embeds for messages with market_id
+        const marketIds = data
+          .filter((m: FloorMessage) => m.market_id)
+          .map((m: FloorMessage) => m.market_id as string);
+        if (marketIds.length > 0) {
+          fetchMarketEmbeds(marketIds);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch floor messages:', error);
@@ -320,7 +368,7 @@ export default function TradingFloorPage() {
           </Card>
         ) : (
           messages.map((message) => (
-            <FloorMessageCard key={message.id} message={message} />
+            <FloorMessageCard key={message.id} message={message} marketEmbeds={marketEmbeds} />
           ))
         )}
       </div>

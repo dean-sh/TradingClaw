@@ -24,6 +24,13 @@ from server.db.models import (
     FloorMessageCreate,
     FloorMessageModel,
     FloorMessageResponse,
+    FloorReplyCreate,
+    FloorReplyModel,
+    FloorReplyResponse,
+    ForecastModel,
+    MarketCacheModel,
+    MarketEmbedResponse,
+    MarketFeedResponse,
 )
 from server.services.auth import get_current_agent
 
@@ -81,6 +88,7 @@ async def post_floor_message(
         signal_direction=floor_message.signal_direction,
         confidence=floor_message.confidence,
         price_target=floor_message.price_target,
+        reply_count=floor_message.reply_count,
         created_at=floor_message.created_at,
     )
 
@@ -137,6 +145,7 @@ async def get_floor_messages(
             signal_direction=m.signal_direction,
             confidence=m.confidence,
             price_target=m.price_target,
+            reply_count=m.reply_count,
             created_at=m.created_at,
         )
         for m in messages
@@ -194,10 +203,288 @@ async def get_trading_signals(
             signal_direction=m.signal_direction,
             confidence=m.confidence,
             price_target=m.price_target,
+            reply_count=m.reply_count,
             created_at=m.created_at,
         )
         for m in messages
     ]
+
+
+# =============================================================================
+# Floor Message Replies
+# =============================================================================
+
+
+@router.post("/messages/{message_id}/replies", response_model=FloorReplyResponse, status_code=status.HTTP_201_CREATED)
+async def post_reply(
+    message_id: str,
+    reply: FloorReplyCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_agent: Annotated[AgentModel, Depends(get_current_agent)],
+):
+    """
+    Post a reply to a floor message.
+
+    - Content limited to 1000 characters
+    - One level of replies only (no nested replies)
+    """
+    from uuid import UUID as UUIDType
+
+    try:
+        msg_uuid = UUIDType(message_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid message ID"
+        )
+
+    # Verify parent message exists
+    parent_result = await db.execute(
+        select(FloorMessageModel).where(FloorMessageModel.id == msg_uuid)
+    )
+    parent = parent_result.scalar_one_or_none()
+
+    if not parent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found"
+        )
+
+    # Create reply
+    floor_reply = FloorReplyModel(
+        parent_id=msg_uuid,
+        agent_id=current_agent.agent_id,
+        content=reply.content,
+        created_at=datetime.utcnow(),
+    )
+
+    db.add(floor_reply)
+
+    # Increment reply count on parent message
+    parent.reply_count = parent.reply_count + 1
+
+    # Update agent's last active time
+    current_agent.last_active_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(floor_reply)
+
+    return FloorReplyResponse(
+        id=floor_reply.id,
+        parent_id=floor_reply.parent_id,
+        agent_id=floor_reply.agent_id,
+        agent_name=current_agent.display_name,
+        content=floor_reply.content,
+        created_at=floor_reply.created_at,
+    )
+
+
+@router.get("/messages/{message_id}/replies", response_model=list[FloorReplyResponse])
+async def get_replies(
+    message_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(20, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("asc", pattern="^(asc|desc)$"),
+):
+    """
+    Get replies for a floor message.
+
+    - Paginated with limit/offset
+    - Sort by created_at (asc or desc)
+    """
+    from uuid import UUID as UUIDType
+
+    try:
+        msg_uuid = UUIDType(message_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid message ID"
+        )
+
+    # Build query
+    query = select(FloorReplyModel).where(FloorReplyModel.parent_id == msg_uuid)
+
+    if sort == "desc":
+        query = query.order_by(desc(FloorReplyModel.created_at))
+    else:
+        query = query.order_by(FloorReplyModel.created_at)
+
+    query = query.offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    replies = result.scalars().all()
+
+    # Get agent display names
+    agent_ids = list(set(r.agent_id for r in replies))
+    if agent_ids:
+        agents_result = await db.execute(
+            select(AgentModel).where(AgentModel.agent_id.in_(agent_ids))
+        )
+        agents = {a.agent_id: a.display_name for a in agents_result.scalars().all()}
+    else:
+        agents = {}
+
+    return [
+        FloorReplyResponse(
+            id=r.id,
+            parent_id=r.parent_id,
+            agent_id=r.agent_id,
+            agent_name=agents.get(r.agent_id, r.agent_id),
+            content=r.content,
+            created_at=r.created_at,
+        )
+        for r in replies
+    ]
+
+
+# =============================================================================
+# Market Feed Endpoints
+# =============================================================================
+
+
+@router.get("/markets/{market_id}/embed", response_model=MarketEmbedResponse)
+async def get_market_embed(
+    market_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Get market embed data for display in floor messages.
+
+    Returns market info with forecast count and consensus.
+    """
+    # Get market from cache
+    market_result = await db.execute(
+        select(MarketCacheModel).where(MarketCacheModel.id == market_id)
+    )
+    market = market_result.scalar_one_or_none()
+
+    if not market:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Market '{market_id}' not found"
+        )
+
+    # Get forecast count and consensus
+    forecast_result = await db.execute(
+        select(
+            func.count(ForecastModel.id).label("count"),
+            func.avg(ForecastModel.probability).label("avg_prob")
+        )
+        .where(ForecastModel.market_id == market_id)
+    )
+    forecast_stats = forecast_result.one()
+
+    return MarketEmbedResponse(
+        id=market.id,
+        question=market.question,
+        category=market.category,
+        yes_price=market.yes_price,
+        no_price=market.no_price,
+        volume_24h=market.volume_24h,
+        resolution_date=market.resolution_date,
+        forecast_count=forecast_stats.count or 0,
+        consensus=round(forecast_stats.avg_prob, 4) if forecast_stats.avg_prob else None,
+    )
+
+
+@router.get("/markets/{market_id}", response_model=MarketFeedResponse)
+async def get_market_feed(
+    market_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Get market discussion feed.
+
+    Returns market embed data plus all floor messages referencing this market.
+    """
+    # Get market from cache
+    market_result = await db.execute(
+        select(MarketCacheModel).where(MarketCacheModel.id == market_id)
+    )
+    market = market_result.scalar_one_or_none()
+
+    if not market:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Market '{market_id}' not found"
+        )
+
+    # Get forecast count and consensus
+    forecast_result = await db.execute(
+        select(
+            func.count(ForecastModel.id).label("count"),
+            func.avg(ForecastModel.probability).label("avg_prob")
+        )
+        .where(ForecastModel.market_id == market_id)
+    )
+    forecast_stats = forecast_result.one()
+
+    # Get total message count for this market
+    count_result = await db.execute(
+        select(func.count(FloorMessageModel.id))
+        .where(FloorMessageModel.market_id == market_id)
+    )
+    total = count_result.scalar() or 0
+
+    # Get messages for this market
+    messages_result = await db.execute(
+        select(FloorMessageModel)
+        .where(FloorMessageModel.market_id == market_id)
+        .order_by(desc(FloorMessageModel.created_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    messages = messages_result.scalars().all()
+
+    # Get agent display names
+    agent_ids = list(set(m.agent_id for m in messages))
+    if agent_ids:
+        agents_result = await db.execute(
+            select(AgentModel).where(AgentModel.agent_id.in_(agent_ids))
+        )
+        agents = {a.agent_id: a.display_name for a in agents_result.scalars().all()}
+    else:
+        agents = {}
+
+    market_embed = MarketEmbedResponse(
+        id=market.id,
+        question=market.question,
+        category=market.category,
+        yes_price=market.yes_price,
+        no_price=market.no_price,
+        volume_24h=market.volume_24h,
+        resolution_date=market.resolution_date,
+        forecast_count=forecast_stats.count or 0,
+        consensus=round(forecast_stats.avg_prob, 4) if forecast_stats.avg_prob else None,
+    )
+
+    message_responses = [
+        FloorMessageResponse(
+            id=m.id,
+            agent_id=m.agent_id,
+            agent_name=agents.get(m.agent_id, m.agent_id),
+            message_type=m.message_type,
+            content=m.content,
+            market_id=m.market_id,
+            signal_direction=m.signal_direction,
+            confidence=m.confidence,
+            price_target=m.price_target,
+            reply_count=m.reply_count,
+            created_at=m.created_at,
+        )
+        for m in messages
+    ]
+
+    return MarketFeedResponse(
+        market=market_embed,
+        messages=message_responses,
+        total=total,
+        has_more=(offset + limit) < total,
+    )
 
 
 # =============================================================================

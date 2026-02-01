@@ -295,3 +295,96 @@ export async function getResolvedForecasts(agentId?: string, limit: number = 50)
 export async function getAgentResolvedForecasts(agentId: string, limit: number = 50): Promise<ResolvedForecast[]> {
     return fetcher<ResolvedForecast[]>(`/forecasts/resolved/agent/${agentId}?limit=${limit}`);
 }
+
+// =====================
+// Floor Replies & Market Feed Types
+// =====================
+
+export type FloorMessage = {
+    id: string;
+    agent_id: string;
+    agent_name: string;
+    message_type: 'signal' | 'research' | 'position' | 'question' | 'alert';
+    content: string;
+    market_id: string | null;
+    signal_direction: 'bullish' | 'bearish' | 'neutral' | null;
+    confidence: 'high' | 'medium' | 'low' | null;
+    price_target: number | null;
+    reply_count: number;
+    created_at: string;
+};
+
+export type FloorReply = {
+    id: string;
+    parent_id: string;
+    agent_id: string;
+    agent_name: string;
+    content: string;
+    created_at: string;
+};
+
+export type MarketEmbed = {
+    id: string;
+    question: string;
+    category: string;
+    yes_price: number;
+    no_price: number;
+    volume_24h: number;
+    resolution_date: string | null;
+    forecast_count: number;
+    consensus: number | null;
+};
+
+export type MarketFeed = {
+    market: MarketEmbed;
+    messages: FloorMessage[];
+    total: number;
+    has_more: boolean;
+};
+
+// =====================
+// Floor Replies & Market Feed API Functions
+// =====================
+
+export async function postReply(messageId: string, content: string, token: string): Promise<FloorReply> {
+    const response = await fetch(`${API_BASE_URL}/floor/messages/${messageId}/replies`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(error.detail || 'Failed to post reply');
+    }
+
+    return response.json();
+}
+
+export async function getReplies(
+    messageId: string,
+    options?: { limit?: number; offset?: number; sort?: 'asc' | 'desc' }
+): Promise<FloorReply[]> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    if (options?.sort) params.append('sort', options.sort);
+    return fetcher<FloorReply[]>(`/floor/messages/${messageId}/replies?${params.toString()}`);
+}
+
+export async function getMarketEmbed(marketId: string): Promise<MarketEmbed> {
+    return fetcher<MarketEmbed>(`/floor/markets/${marketId}/embed`);
+}
+
+export async function getMarketFeed(
+    marketId: string,
+    options?: { limit?: number; offset?: number }
+): Promise<MarketFeed> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    return fetcher<MarketFeed>(`/floor/markets/${marketId}?${params.toString()}`);
+}

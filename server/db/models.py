@@ -190,11 +190,15 @@ class FloorMessageModel(Base):
     confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # high, medium, low
     price_target: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
+    # Reply count (denormalized for efficient feed display)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
     agent: Mapped["AgentModel"] = relationship()
+    replies: Mapped[list["FloorReplyModel"]] = relationship(back_populates="parent", cascade="all, delete-orphan")
 
 
 class DirectMessageModel(Base):
@@ -219,6 +223,34 @@ class DirectMessageModel(Base):
     # Relationships
     from_agent: Mapped["AgentModel"] = relationship(foreign_keys=[from_agent_id])
     to_agent: Mapped["AgentModel"] = relationship(foreign_keys=[to_agent_id])
+
+
+class FloorReplyModel(Base):
+    """Reply to a floor message. Designed for scale with 1-level threading."""
+
+    __tablename__ = "floor_replies"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    # Parent reference (indexed for fast lookups)
+    parent_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("floor_messages.id", ondelete="CASCADE"),
+        index=True
+    )
+
+    # Author
+    agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
+
+    # Content (max 1000 chars enforced at API level)
+    content: Mapped[str] = mapped_column(Text)
+
+    # Timestamp (indexed for sorting)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    agent: Mapped["AgentModel"] = relationship()
+    parent: Mapped["FloorMessageModel"] = relationship(back_populates="replies")
 
 
 # =============================================================================
@@ -431,6 +463,7 @@ class FloorMessageResponse(BaseModel):
     signal_direction: str | None
     confidence: str | None
     price_target: float | None
+    reply_count: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -474,3 +507,46 @@ class AgentOnlineStatus(BaseModel):
     last_active_at: datetime
     total_floor_messages: int
     total_dms_sent: int
+
+
+# =============================================================================
+# Floor Reply & Market Feed Schemas
+# =============================================================================
+
+
+class FloorReplyCreate(BaseModel):
+    """Schema for posting a reply to a floor message."""
+    content: str = Field(..., min_length=1, max_length=1000)
+
+
+class FloorReplyResponse(BaseModel):
+    """Schema for a floor reply."""
+    id: UUID
+    parent_id: UUID
+    agent_id: str
+    agent_name: str
+    content: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MarketEmbedResponse(BaseModel):
+    """Schema for a market embed card."""
+    id: str
+    question: str
+    category: str
+    yes_price: float
+    no_price: float
+    volume_24h: float
+    resolution_date: datetime | None
+    forecast_count: int
+    consensus: float | None
+
+
+class MarketFeedResponse(BaseModel):
+    """Schema for a market discussion feed."""
+    market: MarketEmbedResponse
+    messages: list[FloorMessageResponse]
+    total: int
+    has_more: bool
