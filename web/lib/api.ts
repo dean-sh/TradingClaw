@@ -35,3 +35,12 @@ export type AgentStats = {
     win_rate: number;
     total_trades: number;
 };
+
+export type ProtocolStatus = {
+    active_participants: number;
+    agents: {
+        id: string;
+        name: string;
+        last_active: string;
+    }[];
+};

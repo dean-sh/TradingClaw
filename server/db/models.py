@@ -47,6 +47,7 @@ class AgentModel(Base):
     display_name: Mapped[str] = mapped_column(String(255))
     public_key: Mapped[str] = mapped_column(Text)
     wallet_address: Mapped[str] = mapped_column(String(42), index=True)
+    healthcheck_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # Configuration
     strategy: Mapped[str] = mapped_column(String(50), default="balanced")
@@ -174,6 +175,7 @@ class AgentCreate(BaseModel):
     display_name: str
     public_key: str
     wallet_address: str
+    healthcheck_url: str | None = None
     strategy: str = "balanced"
     kelly_fraction: float = 0.5
     max_position_pct: float = 0.10
@@ -193,6 +195,7 @@ class AgentResponse(BaseModel):
     total_forecasts: int = 0
     brier_score: float | None = None
     roi: float | None = None
+    healthcheck_url: str | None = None
     
     model_config = {"from_attributes": True}
 

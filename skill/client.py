@@ -31,6 +31,8 @@ class TradingClawConfig:
     share_forecasts: bool = True
     use_consensus: bool = True
     scan_interval_hours: int = 4
+    healthcheck_url: str | None = None
+    heartbeat_interval_seconds: int = 300
     
     def __post_init__(self):
         if self.categories is None:
@@ -128,6 +130,7 @@ class TradingClawClient:
                     "kelly_fraction": self.config.kelly_fraction,
                     "max_position_pct": self.config.max_position_pct,
                     "categories": self.config.categories,
+                    "healthcheck_url": self.config.healthcheck_url,
                 }
             )
             return response.json()
@@ -213,6 +216,15 @@ class TradingClawClient:
             )
             return response.json()
     
+    async def send_heartbeat(self) -> dict:
+        """Send heartbeat to signal autonomous participation."""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.config.platform_url}/api/v1/protocol/heartbeat",
+                headers=self._headers(),
+            )
+            return response.json()
+    
     async def get_positions(self) -> list[Position]:
         """Get current positions (from Polymarket, not TradingClaw)."""
         # This would query Polymarket Data API directly
@@ -252,6 +264,9 @@ class TradingClawSkill:
         
         self.running = True
         
+        # Start heartbeat task
+        asyncio.create_task(self._heartbeat_loop())
+        
         while self.running:
             try:
                 await self._trading_cycle()
@@ -260,6 +275,16 @@ class TradingClawSkill:
             
             # Wait for next cycle
             await asyncio.sleep(self.config.scan_interval_hours * 3600)
+    
+    async def _heartbeat_loop(self):
+        """Background loop to send heartbeats."""
+        while self.running:
+            try:
+                await self.client.send_heartbeat()
+            except Exception as e:
+                print(f"Heartbeat error: {e}")
+            
+            await asyncio.sleep(self.config.heartbeat_interval_seconds)
     
     async def stop(self):
         """Stop the trading loop."""

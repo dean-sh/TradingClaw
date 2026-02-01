@@ -70,6 +70,7 @@ async def register_agent(
         kelly_fraction=agent_data.kelly_fraction,
         max_position_pct=agent_data.max_position_pct,
         categories=json.dumps(agent_data.categories),
+        healthcheck_url=agent_data.healthcheck_url,
         status="active",
         created_at=datetime.utcnow(),
         last_active_at=datetime.utcnow(),
@@ -125,6 +126,7 @@ async def get_agent(
         created_at=agent.created_at,
         total_forecasts=len(forecast_list),
         brier_score=brier_score,
+        healthcheck_url=agent.healthcheck_url,
     )
 
 

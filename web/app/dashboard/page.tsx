@@ -8,10 +8,11 @@ import {
 } from 'recharts';
 import { ExternalLink, TrendingUp, Info, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { fetcher, Opportunity } from '@/lib/api';
+import { fetcher, Opportunity, ProtocolStatus } from '@/lib/api';
 
 export default function DashboardPage() {
     const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+    const [protocolStatus, setProtocolStatus] = useState<ProtocolStatus | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -19,12 +20,16 @@ export default function DashboardPage() {
         async function loadData() {
             try {
                 setLoading(true);
-                const data = await fetcher<Opportunity[]>('/markets/opportunities/all');
-                setOpportunities(data);
+                const [opps, status] = await Promise.all([
+                    fetcher<Opportunity[]>('/markets/opportunities/all'),
+                    fetcher<ProtocolStatus>('/protocol/status')
+                ]);
+                setOpportunities(opps);
+                setProtocolStatus(status);
                 setError(null);
             } catch (err) {
-                console.error("Failed to fetch opportunities:", err);
-                setError("Make sure the TradingClaw backend is running at :8000");
+                console.error("Failed to fetch dashboard data:", err);
+                setError("Make sure the TradingClaw backend is running");
             } finally {
                 setLoading(false);
             }
@@ -98,46 +103,92 @@ export default function DashboardPage() {
                     )}
                 </Card>
 
-                {/* Side Panel: Top Opportunities */}
-                <div className="flex flex-col gap-6">
-                    <h3 className="text-xl font-bold px-2">High Edge Signal</h3>
-                    <div className="flex flex-col gap-4">
-                        {opportunities.length > 0 ? (
-                            opportunities.map((opp) => (
-                                <Card key={opp.market.id} className="flex flex-col gap-4 p-5">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500 bg-white/5 px-2 py-0.5 rounded">
-                                            {opp.market.category}
-                                        </span>
-                                        <ExternalLink className="w-4 h-4 text-zinc-600 hover:text-white cursor-pointer transition-colors" />
-                                    </div>
-                                    <p className="font-medium text-sm leading-tight line-clamp-2">
-                                        {opp.market.question}
-                                    </p>
-                                    <div className="flex items-center justify-between mt-2">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Market</span>
-                                            <span className="text-sm font-bold">{(opp.market.yes_price * 100).toFixed(0)}%</span>
-                                        </div>
-                                        <div className="flex flex-col items-center">
-                                            <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Edge</span>
-                                            <span className={cn(
-                                                "text-sm font-bold",
-                                                opp.edge > 0 ? "text-emerald-400" : "text-zinc-400"
-                                            )}>
-                                                {opp.edge > 0 ? `+${(opp.edge * 100).toFixed(1)}%` : `${(opp.edge * 100).toFixed(1)}%`}
+                {/* Side Panel: Top Opportunities & Active Pool */}
+                <div className="flex flex-col gap-10">
+                    <div className="flex flex-col gap-6">
+                        <h3 className="text-xl font-bold px-2">High Edge Signal</h3>
+                        <div className="flex flex-col gap-4">
+                            {opportunities.length > 0 ? (
+                                opportunities.map((opp) => (
+                                    <Card key={opp.market.id} className="flex flex-col gap-4 p-5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500 bg-white/5 px-2 py-0.5 rounded">
+                                                {opp.market.category}
                                             </span>
+                                            <ExternalLink className="w-4 h-4 text-zinc-600 hover:text-white cursor-pointer transition-colors" />
                                         </div>
-                                        <div className="flex flex-col items-end">
-                                            <span className="text-[10px] text-cyan-glow uppercase tracking-tighter">Signal</span>
-                                            <span className="text-sm font-bold neon-text-cyan">{(opp.consensus_probability * 100).toFixed(1)}%</span>
+                                        <p className="font-medium text-sm leading-tight line-clamp-2">
+                                            {opp.market.question}
+                                        </p>
+                                        <div className="flex items-center justify-between mt-2">
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Market</span>
+                                                <span className="text-sm font-bold">{(opp.market.yes_price * 100).toFixed(0)}%</span>
+                                            </div>
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Edge</span>
+                                                <span className={cn(
+                                                    "text-sm font-bold",
+                                                    opp.edge > 0 ? "text-emerald-400" : "text-zinc-400"
+                                                )}>
+                                                    {opp.edge > 0 ? `+${(opp.edge * 100).toFixed(1)}%` : `${(opp.edge * 100).toFixed(1)}%`}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-[10px] text-cyan-glow uppercase tracking-tighter">Signal</span>
+                                                <span className="text-sm font-bold neon-text-cyan">{(opp.consensus_probability * 100).toFixed(1)}%</span>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))
+                            ) : (
+                                <p className="text-zinc-600 text-sm px-2">No opportunities found.</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Active Participation Protocol */}
+                    <div className="flex flex-col gap-4 border-t border-white/10 pt-8 mt-4">
+                        <div className="flex items-center justify-between px-2">
+                            <h3 className="text-lg font-bold">Active Pool</h3>
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-xs text-zinc-500 font-medium">LIVE</span>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            {protocolStatus?.agents && protocolStatus.agents.length > 0 ? (
+                                protocolStatus.agents.map((agent) => (
+                                    <div key={agent.id} className="flex items-center justify-between bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/5 transition-all group">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium group-hover:text-cyan-glow transition-colors">{agent.name}</span>
+                                            <span className="text-[10px] text-zinc-500 font-mono">{agent.id}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="text-[10px] uppercase tracking-tighter text-zinc-500">Last Seen</span>
+                                            <p className="text-[10px] font-bold text-zinc-300">
+                                                {new Date(agent.last_active).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
                                         </div>
                                     </div>
-                                </Card>
-                            ))
-                        ) : (
-                            <p className="text-zinc-600 text-sm px-2">No opportunities found.</p>
+                                ))
+                            ) : (
+                                <div className="bg-white/5 p-4 rounded-xl border border-white/5 text-center">
+                                    <p className="text-xs text-zinc-500 italic font-medium">Waiting for autonomous agents to ping heartbeat protocol...</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {protocolStatus && protocolStatus.active_participants > 0 && (
+                            <p className="text-[10px] text-zinc-600 px-2 italic font-medium">
+                                {protocolStatus.active_participants} agents currently participating in consensus.
+                            </p>
                         )}
+
+                        <Button variant="ghost" className="h-auto py-2 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-white" onClick={() => window.open('/heartbeat.md', '_blank')}>
+                            View Participation Protocol 💓
+                        </Button>
                     </div>
                 </div>
             </div>
