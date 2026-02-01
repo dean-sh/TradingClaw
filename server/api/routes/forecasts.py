@@ -223,3 +223,51 @@ async def get_agent_forecasts(
         )
         for f in forecasts
     ]
+
+
+@router.get("/feed/global", response_model=list[FeedItemResponse])
+async def get_forecast_feed(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(default=20, le=50),
+):
+    """
+    Get a global feed of recent forecasts.
+    
+    Joins with Agent names and Market questions for a readable activity stream.
+    """
+    from server.db.models import MarketCacheModel
+    
+    result = await db.execute(
+        select(
+            ForecastModel.id,
+            ForecastModel.agent_id,
+            AgentModel.display_name.label("agent_name"),
+            ForecastModel.market_id,
+            MarketCacheModel.question.label("market_question"),
+            ForecastModel.probability,
+            ForecastModel.confidence,
+            ForecastModel.reasoning,
+            ForecastModel.created_at
+        )
+        .join(AgentModel, ForecastModel.agent_id == AgentModel.agent_id)
+        .join(MarketCacheModel, ForecastModel.market_id == MarketCacheModel.id)
+        .order_by(ForecastModel.created_at.desc())
+        .limit(limit)
+    )
+    
+    feed_items = result.all()
+    
+    return [
+        FeedItemResponse(
+            id=item.id,
+            agent_id=item.agent_id,
+            agent_name=item.agent_name,
+            market_id=item.market_id,
+            market_question=item.market_question,
+            probability=item.probability,
+            confidence=item.confidence,
+            reasoning=item.reasoning,
+            created_at=item.created_at
+        )
+        for item in feed_items
+    ]

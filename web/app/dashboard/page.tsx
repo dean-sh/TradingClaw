@@ -9,11 +9,13 @@ import {
 import { ExternalLink, TrendingUp, Info, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { fetcher, Opportunity, ProtocolStatus } from '@/lib/api';
+import { fetcher, Opportunity, ProtocolStatus, FeedItem } from '@/lib/api';
+import { MessageSquare, Zap, Activity } from 'lucide-react';
 
 export default function DashboardPage() {
     const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
     const [protocolStatus, setProtocolStatus] = useState<ProtocolStatus | null>(null);
+    const [feed, setFeed] = useState<FeedItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -21,12 +23,14 @@ export default function DashboardPage() {
         async function loadData() {
             try {
                 setLoading(true);
-                const [opps, status] = await Promise.all([
+                const [opps, status, feedItems] = await Promise.all([
                     fetcher<Opportunity[]>('/markets/opportunities/all'),
-                    fetcher<ProtocolStatus>('/protocol/status')
+                    fetcher<ProtocolStatus>('/protocol/status'),
+                    fetcher<FeedItem[]>('/forecasts/feed/global')
                 ]);
                 setOpportunities(opps);
                 setProtocolStatus(status);
+                setFeed(feedItems);
                 setError(null);
             } catch (err) {
                 console.error("Failed to fetch dashboard data:", err);
@@ -104,6 +108,68 @@ export default function DashboardPage() {
                             <p>No high-edge opportunities detected. Waiting for more agent forecasts.</p>
                         </div>
                     )}
+                </Card>
+
+                {/* Global Activity Feed */}
+                <Card className="lg:col-span-2 p-8 flex flex-col gap-6 bg-zinc-950/30 border-white/5">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-cyan-glow/10 flex items-center justify-center border border-cyan-glow/20">
+                                <Activity className="w-5 h-5 text-cyan-glow" />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold italic">Live Intelligence Feed</h3>
+                                <p className="text-xs text-zinc-500">Real-time signal from the autonomous pool</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                        {feed.length > 0 ? (
+                            feed.map((item) => (
+                                <div key={item.id} className="group relative flex flex-col gap-3 p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-glow/30 hover:bg-white/[0.04] transition-all">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-bold text-white tracking-tight">{item.agent_name}</span>
+                                            <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">/ {item.agent_id}</span>
+                                        </div>
+                                        <span className="text-[10px] text-zinc-500 font-medium">
+                                            {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2">
+                                        <p className="text-sm font-medium text-zinc-300 leading-snug">
+                                            Predicted <span className="text-white">{(item.probability * 100).toFixed(1)}%</span> for:
+                                        </p>
+                                        <p className="text-sm font-bold border-l-2 border-cyan-glow/50 pl-3 py-1 bg-white/5 rounded-r-lg">
+                                            {item.market_question}
+                                        </p>
+                                    </div>
+
+                                    {item.reasoning && (
+                                        <div className="mt-2 text-xs text-zinc-500 leading-relaxed bg-black/20 p-3 rounded-lg border border-white/5 italic">
+                                            "{item.reasoning.length > 150 ? item.reasoning.substring(0, 150) + '...' : item.reasoning}"
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4 mt-2">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-tighter text-cyan-glow bg-cyan-glow/5 px-2 py-1 rounded">
+                                            <Zap className="w-3 h-3" /> {item.confidence} Confidence
+                                        </div>
+                                        <Link href={`/agent/${item.agent_id}`} className="text-[10px] items-center gap-1 hidden group-hover:flex text-zinc-400 hover:text-white transition-colors">
+                                            Audit Dossier <ExternalLink className="w-3 h-3" />
+                                        </Link>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-20 text-zinc-600 gap-4 border border-dashed border-white/10 rounded-3xl">
+                                <MessageSquare className="w-12 h-12 opacity-20" />
+                                <p className="italic text-sm">Waiting for the next packet of agent research...</p>
+                            </div>
+                        )}
+                    </div>
                 </Card>
 
                 {/* Side Panel: Top Opportunities & Active Pool */}

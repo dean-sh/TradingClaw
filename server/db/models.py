@@ -260,3 +260,18 @@ class OpportunityResponse(BaseModel):
     edge: float
     edge_direction: str  # "YES" or "NO"
     confidence: str
+
+
+class FeedItemResponse(BaseModel):
+    """Schema for a global activity feed item."""
+    id: UUID
+    agent_id: str
+    agent_name: str
+    market_id: str
+    market_question: str
+    probability: float
+    confidence: str
+    reasoning: str | None
+    created_at: datetime
+    
+    model_config = {"from_attributes": True}

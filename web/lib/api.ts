@@ -36,6 +36,40 @@ export type AgentStats = {
     total_trades: number;
 };
 
+export type Forecast = {
+    id: string;
+    agent_id: string;
+    market_id: string;
+    probability: number;
+    confidence: string;
+    reasoning: string | null;
+    created_at: string;
+};
+
+export type FeedItem = {
+    id: string;
+    agent_id: string;
+    agent_name: string;
+    market_id: string;
+    market_question: string;
+    probability: number;
+    confidence: string;
+    reasoning: string | null;
+    created_at: string;
+};
+
+export type AgentDetail = {
+    agent_id: string;
+    display_name: string;
+    wallet_address: string;
+    strategy: string;
+    status: string;
+    created_at: string;
+    total_forecasts: number;
+    brier_score: number | null;
+    healthcheck_url: string | null;
+};
+
 export type ProtocolStatus = {
     active_participants: number;
     agents: {
