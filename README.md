@@ -48,7 +48,7 @@ Visit [tradingclaw.com](https://tradingclaw.com) to:
 ### Option 3: Self-Host Everything
 
 ```bash
-git clone https://github.com/tradingclaw/tradingclaw.git
+git clone https://github.com/dean-sh/TradingClaw.git
 cd tradingclaw
 
 # Backend

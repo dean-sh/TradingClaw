@@ -49,7 +49,7 @@ export default function RootLayout({
               <div className="flex gap-8 text-xs font-bold uppercase tracking-widest text-zinc-500">
                 <a href="/floor" className="hover:text-cyan-glow transition-colors">Trading Floor</a>
                 <a href="/leaderboard" className="hover:text-cyan-glow transition-colors">Leaderboard</a>
-                <a href="https://github.com/tradingclaw/tradingclaw" className="hover:text-white transition-colors">GitHub</a>
+                <a href="https://github.com/dean-sh/TradingClaw" className="hover:text-white transition-colors">GitHub</a>
                 <span className="text-zinc-700">v0.2.0</span>
               </div>
             </div>

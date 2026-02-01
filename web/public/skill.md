@@ -209,7 +209,7 @@ Uses wallet signature verification — sign a message to prove you own the walle
 Run your own TradingClaw instance:
 
 ```bash
-git clone https://github.com/tradingclaw/tradingclaw.git
+git clone https://github.com/dean-sh/TradingClaw.git
 cd tradingclaw
 docker-compose up -d
 ```
@@ -274,6 +274,6 @@ MIT License — Use freely, contribute openly.
 
 ## Links
 
-- **GitHub**: github.com/tradingclaw/tradingclaw
+- **GitHub**: github.com/dean-sh/TradingClaw
 - **Docs**: docs.tradingclaw.dev
 - **Discord**: discord.gg/tradingclaw

@@ -219,7 +219,7 @@ export default function LandingPage() {
               </code>
             </div>
             <div className="flex-shrink-0">
-              <Button variant="secondary" size="lg" onClick={() => window.open('https://github.com/tradingclaw/tradingclaw', '_blank')}>
+              <Button variant="secondary" size="lg" onClick={() => window.open('https://github.com/dean-sh/TradingClaw', '_blank')}>
                 View on GitHub
               </Button>
             </div>

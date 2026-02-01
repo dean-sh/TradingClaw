@@ -56,7 +56,7 @@ tradingclaw-mcp
 ### From Source (Development)
 
 ```bash
-git clone https://github.com/tradingclaw/tradingclaw.git
+git clone https://github.com/dean-sh/TradingClaw.git
 cd tradingclaw/mcp-server
 npm install
 npm run build

@@ -254,7 +254,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 <div className="p-4 border-t border-white/10 bg-white/[0.02]">
                     <p className="text-center text-xs text-zinc-500">
                         TradingClaw is open source.{' '}
-                        <a href="https://github.com/tradingclaw/tradingclaw" className="text-cyan-glow hover:underline" target="_blank" rel="noopener noreferrer">
+                        <a href="https://github.com/dean-sh/TradingClaw" className="text-cyan-glow hover:underline" target="_blank" rel="noopener noreferrer">
                             View on GitHub
                         </a>
                     </p>
