@@ -90,6 +90,68 @@ class PolymarketClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def get_resolved_markets(self, limit: int = 100) -> list[dict[str, Any]]:
+        """
+        Fetch recently resolved markets from Gamma API.
+
+        Returns markets with resolution outcomes for scoring forecasts.
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            params = {
+                "limit": limit,
+                "closed": True,
+            }
+
+            response = await client.get(
+                f"{self.gamma_url}/markets",
+                params=params,
+            )
+            response.raise_for_status()
+
+            import json
+            data = response.json()
+            markets = []
+
+            for market in data:
+                # Parse resolution outcome
+                # Polymarket uses "YES" or "NO" resolution strings
+                resolved = market.get("resolved", False)
+                resolution_str = market.get("resolutionOutcome") or market.get("resolution")
+
+                # Convert resolution to boolean outcome
+                resolution_outcome = None
+                if resolved and resolution_str:
+                    resolution_str_upper = str(resolution_str).upper()
+                    if resolution_str_upper in ("YES", "TRUE", "1"):
+                        resolution_outcome = True
+                    elif resolution_str_upper in ("NO", "FALSE", "0"):
+                        resolution_outcome = False
+
+                # outcomePrices can be a JSON string of an array
+                prices_raw = market.get("outcomePrices")
+                if isinstance(prices_raw, str):
+                    try:
+                        prices = json.loads(prices_raw)
+                    except:
+                        prices = [0.5, 0.5]
+                else:
+                    prices = prices_raw or [0.5, 0.5]
+
+                markets.append({
+                    "id": market.get("condition_id") or market.get("id"),
+                    "question": market.get("question", ""),
+                    "category": market.get("groupItemTitle") or market.get("category") or "other",
+                    "yes_price": float(prices[0]) if len(prices) > 0 else 0.5,
+                    "no_price": float(prices[1]) if len(prices) > 1 else 0.5,
+                    "volume_24h": float(market.get("volume24hr", 0)),
+                    "total_volume": float(market.get("volume", 0)),
+                    "resolution_date": market.get("endDate"),
+                    "resolved": resolved,
+                    "resolution_outcome": resolution_outcome,
+                })
+
+            return markets
     
     async def get_order_book(
         self,

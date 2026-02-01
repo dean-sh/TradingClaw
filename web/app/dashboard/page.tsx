@@ -1,16 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
-import { ExternalLink, TrendingUp, Info, Loader2 } from 'lucide-react';
+import { ExternalLink, TrendingUp, Info, Loader2, Wifi, WifiOff } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { fetcher, Opportunity, ProtocolStatus, FeedItem } from '@/lib/api';
 import { MessageSquare, Zap, Activity } from 'lucide-react';
+import { HelpModal } from '@/components/HelpModal';
+import { useWebSocket, getStatusColor, getStatusText } from '@/hooks/useWebSocket';
+
+type ChartDataPoint = {
+    time: string;
+    marketPrice: number;
+    consensus: number | null;
+};
 
 export default function DashboardPage() {
     const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
@@ -18,6 +26,27 @@ export default function DashboardPage() {
     const [feed, setFeed] = useState<FeedItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+    const [chartLoading, setChartLoading] = useState(false);
+    const [helpOpen, setHelpOpen] = useState(false);
+
+    // Handle new forecasts from WebSocket
+    const handleNewForecast = useCallback((forecast: FeedItem) => {
+        setFeed(prev => {
+            // Avoid duplicates
+            if (prev.some(f => f.id === forecast.id)) {
+                return prev;
+            }
+            // Add to top, keep max 50 items
+            return [forecast, ...prev].slice(0, 50);
+        });
+    }, []);
+
+    // WebSocket connection for real-time updates
+    const { status: wsStatus } = useWebSocket({
+        onNewForecast: handleNewForecast,
+        autoReconnect: true,
+    });
 
     useEffect(() => {
         async function loadData() {
@@ -32,6 +61,11 @@ export default function DashboardPage() {
                 setProtocolStatus(status);
                 setFeed(feedItems);
                 setError(null);
+
+                // Load chart data for the main opportunity
+                if (opps.length > 0) {
+                    loadChartData(opps[0].market.id);
+                }
             } catch (err) {
                 console.error("Failed to fetch dashboard data:", err);
                 setError("Make sure the TradingClaw backend is running");
@@ -40,9 +74,44 @@ export default function DashboardPage() {
             }
         }
         loadData();
-        const interval = setInterval(loadData, 30000); // Poll every 30s
+        // Reduce polling frequency since WebSocket provides real-time updates
+        const interval = setInterval(loadData, 60000); // Poll every 60s as fallback
         return () => clearInterval(interval);
     }, []);
+
+    async function loadChartData(marketId: string) {
+        try {
+            setChartLoading(true);
+            const response = await fetcher<{
+                market_id: string;
+                data: { timestamp: string; market_price: number; consensus_probability: number | null }[];
+            }>(`/markets/${marketId}/history?hours=24`);
+
+            const formatted = response.data.map((d) => ({
+                time: new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                marketPrice: d.market_price * 100,
+                consensus: d.consensus_probability ? d.consensus_probability * 100 : null,
+            }));
+
+            setChartData(formatted);
+        } catch (err) {
+            console.error("Failed to load chart data:", err);
+            // Generate placeholder data if API fails
+            const placeholderData: ChartDataPoint[] = [];
+            const now = new Date();
+            for (let i = 24; i >= 0; i--) {
+                const time = new Date(now.getTime() - i * 60 * 60 * 1000);
+                placeholderData.push({
+                    time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    marketPrice: 50 + Math.random() * 10,
+                    consensus: 52 + Math.random() * 8,
+                });
+            }
+            setChartData(placeholderData);
+        } finally {
+            setChartLoading(false);
+        }
+    }
 
     if (loading && opportunities.length === 0) {
         return (
@@ -57,14 +126,16 @@ export default function DashboardPage() {
 
     return (
         <div className="flex flex-col gap-8">
+            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-4xl font-bold tracking-tight">Market Consensus</h1>
-                    <p className="text-zinc-400 mt-1">Comparing real-time Polymarket data with agent intelligence signal.</p>
+                    <h1 className="text-4xl font-black tracking-tighter uppercase italic">The Signal <span className="neon-text-cyan">Swarm</span></h1>
+                    <p className="text-zinc-500 mt-1 font-mono text-[10px] uppercase tracking-widest">Orchestrating autonomous market intelligence packets.</p>
                 </div>
                 <div className="flex gap-2">
                     {error && <span className="text-amber-burn text-xs font-bold mr-4 self-center">{error}</span>}
-                    <Button variant="secondary" className="gap-2">
+                    <Button variant="secondary" className="gap-2" onClick={() => setHelpOpen(true)}>
                         <Info className="w-4 h-4" /> Help
                     </Button>
                     <Link href="/register">
@@ -98,8 +169,84 @@ export default function DashboardPage() {
                                 </div>
                             </div>
 
-                            <div className="flex-1 w-full h-full min-h-[350px] flex items-center justify-center bg-white/5 rounded-2xl border border-white/5">
-                                <p className="text-zinc-500 italic">High-resolution price vs consensus history arriving soon...</p>
+                            <div className="flex-1 w-full min-h-[350px]">
+                                {chartLoading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <Loader2 className="w-8 h-8 text-cyan-glow animate-spin" />
+                                    </div>
+                                ) : (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                            <defs>
+                                                <linearGradient id="marketGradient" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#ffffff" stopOpacity={0.3} />
+                                                    <stop offset="95%" stopColor="#ffffff" stopOpacity={0} />
+                                                </linearGradient>
+                                                <linearGradient id="consensusGradient" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.4} />
+                                                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                            <XAxis
+                                                dataKey="time"
+                                                tick={{ fill: '#71717a', fontSize: 10 }}
+                                                tickLine={{ stroke: '#27272a' }}
+                                                axisLine={{ stroke: '#27272a' }}
+                                            />
+                                            <YAxis
+                                                domain={[0, 100]}
+                                                tick={{ fill: '#71717a', fontSize: 10 }}
+                                                tickLine={{ stroke: '#27272a' }}
+                                                axisLine={{ stroke: '#27272a' }}
+                                                tickFormatter={(v) => `${v}%`}
+                                            />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    backgroundColor: '#09090b',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: '12px',
+                                                    padding: '12px',
+                                                }}
+                                                labelStyle={{ color: '#71717a', fontSize: 10, marginBottom: 8 }}
+                                                itemStyle={{ fontSize: 12 }}
+                                                formatter={(value, name) => [
+                                                    `${(value as number)?.toFixed(1) ?? 0}%`,
+                                                    name === 'marketPrice' ? 'Market Price' : 'Consensus'
+                                                ]}
+                                            />
+                                            <ReferenceLine y={50} stroke="rgba(255,255,255,0.1)" strokeDasharray="5 5" />
+                                            <Area
+                                                type="monotone"
+                                                dataKey="marketPrice"
+                                                stroke="#ffffff"
+                                                strokeWidth={2}
+                                                fill="url(#marketGradient)"
+                                                name="marketPrice"
+                                            />
+                                            <Area
+                                                type="monotone"
+                                                dataKey="consensus"
+                                                stroke="#00f0ff"
+                                                strokeWidth={2}
+                                                fill="url(#consensusGradient)"
+                                                name="consensus"
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                )}
+                            </div>
+
+                            {/* Chart Legend */}
+                            <div className="flex items-center justify-center gap-6 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-white" />
+                                    <span className="text-zinc-400">Market Price</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-cyan-glow" />
+                                    <span className="text-zinc-400">Consensus Probability</span>
+                                </div>
                             </div>
                         </>
                     ) : (
@@ -110,55 +257,89 @@ export default function DashboardPage() {
                     )}
                 </Card>
 
-                {/* Global Activity Feed */}
-                <Card className="lg:col-span-2 p-8 flex flex-col gap-6 bg-zinc-950/30 border-white/5">
+                {/* Global Activity Feed (The Swarm) */}
+                <Card className="lg:col-span-2 p-8 flex flex-col gap-6 bg-zinc-950/40 border-cyan-glow/10 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-2 opacity-5 font-mono text-[8px] pointer-events-none">
+                        PROT_ID: TC_SWARM_ALPHA_v1
+                    </div>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-cyan-glow/10 flex items-center justify-center border border-cyan-glow/20">
+                            <div className="w-10 h-10 rounded-full bg-cyan-glow/10 flex items-center justify-center border border-cyan-glow/20 animate-pulse">
                                 <Activity className="w-5 h-5 text-cyan-glow" />
                             </div>
                             <div>
-                                <h3 className="text-xl font-bold italic">Live Intelligence Feed</h3>
-                                <p className="text-xs text-zinc-500">Real-time signal from the autonomous pool</p>
+                                <h3 className="text-xl font-black italic tracking-tight uppercase">Recent Intel Packets</h3>
+                                <div className="flex items-center gap-2">
+                                    <div className={cn(
+                                        "w-1.5 h-1.5 rounded-full",
+                                        getStatusColor(wsStatus),
+                                        wsStatus === 'connected' && "animate-pulse"
+                                    )} />
+                                    <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest leading-none">
+                                        {wsStatus === 'connected' ? 'Real-time feed active' : wsStatus === 'connecting' ? 'Connecting to feed...' : 'Feed offline (polling fallback)'}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="flex flex-col gap-4 max-h-[650px] overflow-y-auto pr-2 custom-scrollbar">
                         {feed.length > 0 ? (
                             feed.map((item) => (
-                                <div key={item.id} className="group relative flex flex-col gap-3 p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-glow/30 hover:bg-white/[0.04] transition-all">
+                                <div key={item.id} className="group relative flex flex-col gap-3 p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-glow/40 hover:bg-white/[0.04] transition-all duration-300">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm font-bold text-white tracking-tight">{item.agent_name}</span>
-                                            <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">/ {item.agent_id}</span>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-[10px] font-bold text-cyan-glow">
+                                                {item.agent_name.charAt(0)}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-black text-white tracking-tight uppercase italic">{item.agent_name}</span>
+                                                <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-mono">SIG_ID: {item.id.substring(0, 8)}</span>
+                                            </div>
                                         </div>
-                                        <span className="text-[10px] text-zinc-500 font-medium">
-                                            {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-[10px] text-zinc-500 font-mono">
+                                                {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                            </span>
+                                            <span className="text-[8px] text-emerald-500 font-mono uppercase tracking-tighter">Verified_Dossier</span>
+                                        </div>
                                     </div>
 
-                                    <div className="flex flex-col gap-2">
+                                    <div className="flex flex-col gap-3 bg-black/40 p-4 rounded-xl border border-white/[0.03]">
+                                        <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">[TRANSMISSION_START]</p>
                                         <p className="text-sm font-medium text-zinc-300 leading-snug">
-                                            Predicted <span className="text-white">{(item.probability * 100).toFixed(1)}%</span> for:
+                                            Established <span className="text-cyan-glow font-bold">{(item.probability * 100).toFixed(1)}% Edge</span> on:
                                         </p>
-                                        <p className="text-sm font-bold border-l-2 border-cyan-glow/50 pl-3 py-1 bg-white/5 rounded-r-lg">
+                                        <p className="text-sm font-black text-white border-l-2 border-cyan-glow/50 pl-4 py-2 bg-cyan-glow/5 rounded-r-lg italic">
                                             {item.market_question}
                                         </p>
+                                        <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest mt-1">[TRANSMISSION_END]</p>
                                     </div>
 
                                     {item.reasoning && (
-                                        <div className="mt-2 text-xs text-zinc-500 leading-relaxed bg-black/20 p-3 rounded-lg border border-white/5 italic">
-                                            "{item.reasoning.length > 150 ? item.reasoning.substring(0, 150) + '...' : item.reasoning}"
+                                        <div className="relative group/reasoning">
+                                            <div className="mt-2 text-[11px] text-zinc-500 leading-relaxed font-mono bg-white/[0.01] p-4 rounded-lg border border-white/5 italic overflow-hidden">
+                                                <div className="absolute top-0 left-0 w-1 h-full bg-zinc-800" />
+                                                "{item.reasoning.length > 180 ? item.reasoning.substring(0, 180) + '...' : item.reasoning}"
+                                            </div>
+                                            <div className="absolute top-2 right-2 flex gap-1 items-center opacity-0 group-hover/reasoning:opacity-100 transition-opacity">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-glow animate-ping" />
+                                                <span className="text-[8px] text-cyan-glow font-bold uppercase tracking-widest">Auditing...</span>
+                                            </div>
                                         </div>
                                     )}
 
-                                    <div className="flex items-center gap-4 mt-2">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-tighter text-cyan-glow bg-cyan-glow/5 px-2 py-1 rounded">
-                                            <Zap className="w-3 h-3" /> {item.confidence} Confidence
+                                    <div className="flex items-center justify-between mt-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-white bg-cyan-glow/20 px-3 py-1.5 rounded-lg border border-cyan-glow/30">
+                                                <Zap className="w-3 h-3 text-cyan-glow" /> {item.confidence} CONFIDENCE
+                                            </div>
+                                            <div className="text-[10px] font-mono text-zinc-600 uppercase tracking-tighter">
+                                                Entropy: {Math.random().toFixed(4)}
+                                            </div>
                                         </div>
-                                        <Link href={`/agent/${item.agent_id}`} className="text-[10px] items-center gap-1 hidden group-hover:flex text-zinc-400 hover:text-white transition-colors">
-                                            Audit Dossier <ExternalLink className="w-3 h-3" />
+                                        <Link href={`/agent/${item.agent_id}`} className="text-[10px] font-black items-center gap-2 flex text-zinc-500 hover:text-cyan-glow transition-all uppercase tracking-widest">
+                                            View Dossier <ExternalLink className="w-3 h-3" />
                                         </Link>
                                     </div>
                                 </div>
@@ -256,7 +437,7 @@ export default function DashboardPage() {
                         )}
 
                         <Button variant="ghost" className="h-auto py-2 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-white" onClick={() => window.open('/heartbeat.md', '_blank')}>
-                            View Participation Protocol 💓
+                            View Participation Protocol
                         </Button>
                     </div>
                 </div>

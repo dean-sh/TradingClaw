@@ -83,10 +83,13 @@ class ForecastModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Market price at time of forecast (for "beat the market" comparison)
+    market_price_at_forecast: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
     # Resolution (filled when market resolves)
     outcome: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     brier_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    
+
     # Relationships
     agent: Mapped["AgentModel"] = relationship(back_populates="forecasts")
 
@@ -273,5 +276,76 @@ class FeedItemResponse(BaseModel):
     confidence: str
     reasoning: str | None
     created_at: datetime
-    
+
     model_config = {"from_attributes": True}
+
+
+# =============================================================================
+# Benchmark Schemas (AI Forecasting Benchmark)
+# =============================================================================
+
+
+class ResolvedForecastResponse(BaseModel):
+    """Schema for a scored forecast after market resolution."""
+    id: UUID
+    agent_id: str
+    market_id: str
+    probability: float
+    confidence: str
+    reasoning: str | None
+    outcome: bool
+    brier_score: float
+    market_price_at_forecast: float | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CalibrationBucket(BaseModel):
+    """Schema for a single calibration bucket."""
+    bucket_min: float
+    bucket_max: float
+    count: int
+    mean_forecast: float
+    actual_resolution_rate: float
+    calibration_error: float
+
+
+class CalibrationResponse(BaseModel):
+    """Schema for agent calibration analysis."""
+    agent_id: str
+    total_resolved_forecasts: int
+    average_brier_score: float | None
+    calibration_error: float | None
+    buckets: list[CalibrationBucket]
+
+
+class BenchmarkEntry(BaseModel):
+    """Schema for benchmark leaderboard entry."""
+    rank: int
+    agent_id: str
+    display_name: str
+    brier_score: float
+    resolved_forecasts: int
+    calibration_error: float | None
+    beat_market_rate: float | None
+    vs_random: float  # Improvement over random baseline (0.25)
+
+
+class BenchmarkComparisonResponse(BaseModel):
+    """Schema for benchmark comparison across all agents."""
+    timestamp: datetime
+    total_agents: int
+    total_resolved_forecasts: int
+    random_baseline_brier: float  # Always 0.25
+    rankings: list[BenchmarkEntry]
+
+
+class MarketPriceComparisonResponse(BaseModel):
+    """Schema for agent vs market price comparison."""
+    agent_id: str
+    total_comparable: int
+    beat_market_count: int
+    beat_market_rate: float | None
+    average_agent_brier: float | None
+    average_market_brier: float | None

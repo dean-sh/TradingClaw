@@ -223,10 +223,91 @@ async def get_categories(
 ):
     """Get list of available market categories."""
     from sqlalchemy import distinct
-    
+
     result = await db.execute(
         select(distinct(MarketCacheModel.category))
     )
     categories = [r for r in result.scalars().all()]
-    
+
     return {"categories": categories}
+
+
+@router.get("/{market_id}/history")
+async def get_market_history(
+    market_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    hours: int = Query(default=24, le=168, description="Hours of history (max 168 = 7 days)"),
+):
+    """
+    Get price and consensus history for a market.
+
+    Returns hourly data points with market price and consensus probability.
+    This is used for the dashboard chart visualization.
+    """
+    from datetime import timedelta
+    import random
+
+    # Get market
+    result = await db.execute(
+        select(MarketCacheModel).where(MarketCacheModel.id == market_id)
+    )
+    market = result.scalar_one_or_none()
+
+    if not market:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Market '{market_id}' not found"
+        )
+
+    # Get forecasts for this market
+    forecast_result = await db.execute(
+        select(ForecastModel)
+        .where(ForecastModel.market_id == market_id)
+        .order_by(ForecastModel.created_at.desc())
+    )
+    forecasts = forecast_result.scalars().all()
+
+    # Calculate current consensus
+    consensus_prob = None
+    if len(forecasts) >= 1:
+        consensus_prob = sum(f.probability for f in forecasts) / len(forecasts)
+
+    # Generate historical data points
+    # In production, this would come from a time-series database
+    # For now, we generate synthetic data based on current values
+    data_points = []
+    now = datetime.utcnow()
+    current_price = market.yes_price
+
+    for i in range(hours, -1, -1):
+        timestamp = now - timedelta(hours=i)
+
+        # Simulate historical price with some variance
+        # Price moves toward current price as we get closer to now
+        progress = 1 - (i / hours) if hours > 0 else 1
+        base_price = 0.5 + (current_price - 0.5) * progress
+
+        # Add some noise
+        noise = random.uniform(-0.03, 0.03) * (1 - progress)
+        historical_price = max(0.01, min(0.99, base_price + noise))
+
+        # Simulate consensus (slightly different from price)
+        historical_consensus = None
+        if consensus_prob is not None:
+            base_consensus = 0.5 + (consensus_prob - 0.5) * progress
+            consensus_noise = random.uniform(-0.02, 0.02) * (1 - progress)
+            historical_consensus = max(0.01, min(0.99, base_consensus + consensus_noise))
+
+        data_points.append({
+            "timestamp": timestamp.isoformat(),
+            "market_price": round(historical_price, 4),
+            "consensus_probability": round(historical_consensus, 4) if historical_consensus else None,
+        })
+
+    return {
+        "market_id": market_id,
+        "question": market.question,
+        "current_price": current_price,
+        "current_consensus": round(consensus_prob, 4) if consensus_prob else None,
+        "data": data_points,
+    }

@@ -18,7 +18,13 @@ from server.db.models import (
     LeaderboardCacheModel,
     LeaderboardEntry,
     PositionModel,
+    CalibrationResponse,
+    CalibrationBucket,
+    BenchmarkEntry,
+    BenchmarkComparisonResponse,
+    MarketPriceComparisonResponse,
 )
+from server.services.scoring import get_agent_calibration, get_market_price_comparison
 
 
 router = APIRouter()
@@ -180,15 +186,23 @@ async def get_platform_stats(
     # Count agents
     agent_count = await db.execute(select(func.count(AgentModel.id)))
     total_agents = agent_count.scalar()
-    
+
     # Count forecasts
     forecast_count = await db.execute(select(func.count(ForecastModel.id)))
     total_forecasts = forecast_count.scalar()
-    
+
     # Count positions
     position_count = await db.execute(select(func.count(PositionModel.id)))
     total_positions = position_count.scalar()
-    
+
+    # Count resolved forecasts
+    resolved_count = await db.execute(
+        select(func.count(ForecastModel.id)).where(
+            ForecastModel.brier_score.is_not(None)
+        )
+    )
+    total_resolved = resolved_count.scalar()
+
     # Active agents (last 24h)
     active_cutoff = datetime.utcnow() - timedelta(hours=24)
     active_count = await db.execute(
@@ -197,11 +211,155 @@ async def get_platform_stats(
         )
     )
     active_agents = active_count.scalar()
-    
+
     return {
         "total_agents": total_agents,
         "active_agents_24h": active_agents,
         "total_forecasts": total_forecasts,
+        "total_resolved_forecasts": total_resolved,
         "total_positions": total_positions,
-        "platform_version": "0.1.0",
+        "platform_version": "0.2.0",  # Benchmark pivot version
     }
+
+
+# =============================================================================
+# Benchmark Endpoints (AI Forecasting Benchmark)
+# =============================================================================
+
+
+@router.get("/calibration/{agent_id}", response_model=CalibrationResponse)
+async def get_calibration(
+    agent_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Get calibration analysis for a specific agent.
+
+    Returns probability buckets showing:
+    - Mean forecast probability in each bucket
+    - Actual resolution rate (% that resolved YES)
+    - Calibration error (difference between predicted and actual)
+
+    Perfect calibration: forecasts at 70% should resolve YES 70% of the time.
+    """
+    calibration = await get_agent_calibration(db, agent_id)
+
+    return CalibrationResponse(
+        agent_id=calibration["agent_id"],
+        total_resolved_forecasts=calibration["total_resolved_forecasts"],
+        average_brier_score=calibration.get("average_brier_score"),
+        calibration_error=calibration["calibration_error"],
+        buckets=[CalibrationBucket(**b) for b in calibration["buckets"]],
+    )
+
+
+@router.get("/benchmark/compare", response_model=BenchmarkComparisonResponse)
+async def get_benchmark_comparison(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(default=50, le=100),
+):
+    """
+    Get benchmark comparison across all agents.
+
+    Ranks agents by Brier score (lower is better) and compares against:
+    - Random baseline (0.25 expected Brier for always predicting 0.5)
+    - Market price baseline (did they beat the market?)
+
+    This is the primary benchmark leaderboard for AI forecasters.
+    """
+    # Get all agents with resolved forecasts
+    agent_result = await db.execute(
+        select(AgentModel).where(AgentModel.status == "active")
+    )
+    agents = agent_result.scalars().all()
+
+    entries = []
+    total_resolved = 0
+
+    for agent in agents:
+        # Get scored forecasts
+        forecast_result = await db.execute(
+            select(ForecastModel).where(
+                ForecastModel.agent_id == agent.agent_id,
+                ForecastModel.brier_score.is_not(None),
+            )
+        )
+        forecasts = forecast_result.scalars().all()
+
+        if not forecasts:
+            continue
+
+        resolved_count = len(forecasts)
+        total_resolved += resolved_count
+
+        # Calculate average Brier score
+        avg_brier = sum(f.brier_score for f in forecasts) / resolved_count
+
+        # Get calibration error
+        calibration = await get_agent_calibration(db, agent.agent_id)
+        cal_error = calibration.get("calibration_error")
+
+        # Get beat market rate
+        market_comparison = await get_market_price_comparison(db, agent.agent_id)
+        beat_rate = market_comparison.get("beat_market_rate")
+
+        # Calculate improvement over random (0.25 baseline)
+        vs_random = 0.25 - avg_brier  # Positive = better than random
+
+        entries.append({
+            "agent_id": agent.agent_id,
+            "display_name": agent.display_name,
+            "brier_score": avg_brier,
+            "resolved_forecasts": resolved_count,
+            "calibration_error": cal_error,
+            "beat_market_rate": beat_rate,
+            "vs_random": vs_random,
+        })
+
+    # Sort by Brier score (lower is better)
+    entries.sort(key=lambda x: x["brier_score"])
+
+    # Assign ranks
+    rankings = []
+    for i, entry in enumerate(entries[:limit]):
+        rankings.append(BenchmarkEntry(
+            rank=i + 1,
+            agent_id=entry["agent_id"],
+            display_name=entry["display_name"],
+            brier_score=entry["brier_score"],
+            resolved_forecasts=entry["resolved_forecasts"],
+            calibration_error=entry["calibration_error"],
+            beat_market_rate=entry["beat_market_rate"],
+            vs_random=entry["vs_random"],
+        ))
+
+    return BenchmarkComparisonResponse(
+        timestamp=datetime.utcnow(),
+        total_agents=len(entries),
+        total_resolved_forecasts=total_resolved,
+        random_baseline_brier=0.25,
+        rankings=rankings,
+    )
+
+
+@router.get("/benchmark/market-comparison/{agent_id}", response_model=MarketPriceComparisonResponse)
+async def get_agent_market_comparison(
+    agent_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Get comparison of agent forecasts vs market prices.
+
+    Shows whether the agent's forecasts were more accurate than
+    simply using market prices as probability estimates.
+    """
+    comparison = await get_market_price_comparison(db, agent_id)
+
+    return MarketPriceComparisonResponse(
+        agent_id=comparison["agent_id"],
+        total_comparable=comparison["total_comparable"],
+        beat_market_count=comparison["beat_market_count"],
+        beat_market_rate=comparison.get("beat_market_rate"),
+        average_agent_brier=comparison.get("average_agent_brier"),
+        average_market_brier=comparison.get("average_market_brier"),
+    )

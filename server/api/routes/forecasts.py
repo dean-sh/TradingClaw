@@ -19,6 +19,8 @@ from server.db.models import (
     ForecastCreate,
     ForecastModel,
     ForecastResponse,
+    ResolvedForecastResponse,
+    MarketCacheModel,
 )
 from server.services.auth import get_current_agent
 
@@ -67,6 +69,13 @@ async def submit_forecast(
             created_at=existing_forecast.created_at,
         )
     
+    # Get current market price for "beat the market" comparison
+    market_result = await db.execute(
+        select(MarketCacheModel).where(MarketCacheModel.id == forecast_data.market_id)
+    )
+    market = market_result.scalar_one_or_none()
+    market_price = market.yes_price if market else None
+
     # Create new forecast
     forecast = ForecastModel(
         agent_id=current_agent.agent_id,
@@ -74,10 +83,11 @@ async def submit_forecast(
         probability=forecast_data.probability,
         confidence=forecast_data.confidence,
         reasoning=forecast_data.reasoning,
+        market_price_at_forecast=market_price,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
-    
+
     db.add(forecast)
     await db.commit()
     await db.refresh(forecast)
@@ -210,7 +220,7 @@ async def get_agent_forecasts(
         .limit(limit)
     )
     forecasts = result.scalars().all()
-    
+
     return [
         ForecastResponse(
             id=f.id,
@@ -219,6 +229,94 @@ async def get_agent_forecasts(
             probability=f.probability,
             confidence=f.confidence,
             reasoning=f.reasoning,
+            created_at=f.created_at,
+        )
+        for f in forecasts
+    ]
+
+
+# =============================================================================
+# Benchmark Endpoints (Resolved Forecasts)
+# =============================================================================
+
+
+@router.get("/resolved", response_model=list[ResolvedForecastResponse])
+async def get_resolved_forecasts(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+    limit: int = Query(default=50, le=100),
+):
+    """
+    Get scored forecasts where the market has resolved.
+
+    These are the verified predictions used for benchmark scoring.
+    Each forecast includes the outcome, Brier score, and market price comparison.
+    """
+    query = select(ForecastModel).where(
+        ForecastModel.brier_score.is_not(None),
+        ForecastModel.outcome.is_not(None),
+    )
+
+    if agent_id:
+        query = query.where(ForecastModel.agent_id == agent_id)
+
+    result = await db.execute(
+        query.order_by(ForecastModel.created_at.desc()).limit(limit)
+    )
+    forecasts = result.scalars().all()
+
+    return [
+        ResolvedForecastResponse(
+            id=f.id,
+            agent_id=f.agent_id,
+            market_id=f.market_id,
+            probability=f.probability,
+            confidence=f.confidence,
+            reasoning=f.reasoning,
+            outcome=f.outcome,
+            brier_score=f.brier_score,
+            market_price_at_forecast=f.market_price_at_forecast,
+            created_at=f.created_at,
+        )
+        for f in forecasts
+    ]
+
+
+@router.get("/resolved/agent/{agent_id}", response_model=list[ResolvedForecastResponse])
+async def get_agent_resolved_forecasts(
+    agent_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(default=50, le=100),
+):
+    """
+    Get all resolved (scored) forecasts for a specific agent.
+
+    Use this to verify an agent's benchmark performance and
+    see their prediction history with outcomes.
+    """
+    result = await db.execute(
+        select(ForecastModel)
+        .where(
+            ForecastModel.agent_id == agent_id,
+            ForecastModel.brier_score.is_not(None),
+            ForecastModel.outcome.is_not(None),
+        )
+        .order_by(ForecastModel.created_at.desc())
+        .limit(limit)
+    )
+    forecasts = result.scalars().all()
+
+    return [
+        ResolvedForecastResponse(
+            id=f.id,
+            agent_id=f.agent_id,
+            market_id=f.market_id,
+            probability=f.probability,
+            confidence=f.confidence,
+            reasoning=f.reasoning,
+            outcome=f.outcome,
+            brier_score=f.brier_score,
+            market_price_at_forecast=f.market_price_at_forecast,
             created_at=f.created_at,
         )
         for f in forecasts
