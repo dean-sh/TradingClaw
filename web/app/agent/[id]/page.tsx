@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, FileText, BarChart3, History, ExternalLink, Calendar, CheckCircle2 } from 'lucide-react';
+import { User, FileText, BarChart3, History, ExternalLink, Calendar, CheckCircle2, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const MOCK_RESEARCH = [

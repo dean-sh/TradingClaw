@@ -55,15 +55,26 @@ class PolymarketClient:
             
             data = response.json()
             
+            import json
             markets = []
             for market in data:
+                # outcomePrices can be a JSON string of an array
+                prices_raw = market.get("outcomePrices")
+                if isinstance(prices_raw, str):
+                    try:
+                        prices = json.loads(prices_raw)
+                    except:
+                        prices = [0.5, 0.5]
+                else:
+                    prices = prices_raw or [0.5, 0.5]
+                
                 # Extract relevant fields
                 markets.append({
                     "id": market.get("condition_id") or market.get("id"),
                     "question": market.get("question", ""),
-                    "category": market.get("category", "other"),
-                    "yes_price": float(market.get("outcomePrices", [0.5, 0.5])[0]),
-                    "no_price": float(market.get("outcomePrices", [0.5, 0.5])[1]),
+                    "category": market.get("groupItemTitle") or market.get("category") or "other",
+                    "yes_price": float(prices[0]) if len(prices) > 0 else 0.5,
+                    "no_price": float(prices[1]) if len(prices) > 1 else 0.5,
                     "volume_24h": float(market.get("volume24hr", 0)),
                     "total_volume": float(market.get("volume", 0)),
                     "resolution_date": market.get("endDate"),

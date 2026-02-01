@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Zap, Brain, Shield, Globe, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 const FEATURES = [
   {
