@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils';
 import { Radio, LayoutDashboard, Award, UserPlus } from 'lucide-react';
 
 const NAV_ITEMS = [
-    { name: 'Trading Floor', href: '/floor', icon: Radio },
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Leaderboard', href: '/leaderboard', icon: Award },
-    { name: 'Register', href: '/register', icon: UserPlus },
+    { name: 'Trading Floor', href: '/floor', icon: Radio, isAgent: false },
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, isAgent: false },
+    { name: 'Leaderboard', href: '/leaderboard', icon: Award, isAgent: false },
+    { name: 'Register', href: '/register', icon: UserPlus, isAgent: true },
 ];
 
 export function Navbar() {
@@ -29,6 +29,7 @@ export function Navbar() {
                     {NAV_ITEMS.map((item) => {
                         const Icon = item.icon;
                         const isActive = pathname === item.href;
+                        const isAgentItem = item.isAgent;
 
                         return (
                             <Link
@@ -36,9 +37,10 @@ export function Navbar() {
                                 href={item.href}
                                 className={cn(
                                     'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider transition-all duration-200',
-                                    isActive
-                                        ? 'bg-cyan-glow/10 text-cyan-glow border border-cyan-glow/20'
-                                        : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                                    isActive && !isAgentItem && 'bg-cyan-glow/10 text-cyan-glow border border-cyan-glow/20',
+                                    isActive && isAgentItem && 'bg-purple-glow/10 text-purple-glow border border-purple-glow/20',
+                                    !isActive && !isAgentItem && 'text-zinc-400 hover:text-white hover:bg-white/5',
+                                    !isActive && isAgentItem && 'text-purple-glow/70 hover:text-purple-glow hover:bg-purple-glow/5 border border-purple-glow/10'
                                 )}
                             >
                                 <Icon className="w-4 h-4" />

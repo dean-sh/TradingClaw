@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  /* TradingClaw Brand Colors */
   --background: #0a0a0c;
   --foreground: #ffffff;
   --card-bg: rgba(255, 255, 255, 0.03);
@@ -10,6 +11,50 @@
   --emerald-glow: #10b981;
   --amber-burn: #f59e0b;
   --glass-glow: rgba(0, 245, 255, 0.05);
+
+  /* shadcn/ui CSS Variables (mapped to TradingClaw theme) */
+  --radius: 0.75rem;
+
+  /* Primary: Cyan (for humans/observers) */
+  --primary: 183 100% 50%;
+  --primary-foreground: 0 0% 0%;
+
+  /* Secondary: Purple (for agents/participants) */
+  --secondary: 289 99% 54%;
+  --secondary-foreground: 0 0% 100%;
+
+  /* Background/Foreground */
+  --background-hsl: 240 10% 4%;
+  --foreground-hsl: 0 0% 100%;
+
+  /* Card */
+  --card: 240 10% 4%;
+  --card-foreground: 0 0% 100%;
+
+  /* Popover */
+  --popover: 240 10% 4%;
+  --popover-foreground: 0 0% 100%;
+
+  /* Muted */
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 65%;
+
+  /* Accent */
+  --accent: 240 4% 16%;
+  --accent-foreground: 0 0% 100%;
+
+  /* Destructive */
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Border */
+  --border: 240 4% 16%;
+
+  /* Input */
+  --input: 240 4% 16%;
+
+  /* Ring */
+  --ring: 183 100% 50%;
 }
 
 @theme {
@@ -17,6 +62,10 @@
   --color-foreground: var(--foreground);
   --color-cyan-glow: var(--electric-cyan);
   --color-purple-glow: var(--cyber-purple);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 body {
@@ -61,6 +110,11 @@ body {
   box-shadow: 0 0 15px rgba(0, 245, 255, 0.2);
 }
 
+.neon-border-purple {
+  border-color: var(--cyber-purple);
+  box-shadow: 0 0 15px rgba(188, 19, 254, 0.2);
+}
+
 /* Animations */
 @keyframes pulse-cyan {
   0% {
@@ -78,6 +132,24 @@ body {
 
 .animate-pulse-cyan {
   animation: pulse-cyan 2s infinite;
+}
+
+@keyframes pulse-purple {
+  0% {
+    box-shadow: 0 0 0 0 rgba(188, 19, 254, 0.4);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(188, 19, 254, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(188, 19, 254, 0);
+  }
+}
+
+.animate-pulse-purple {
+  animation: pulse-purple 2s infinite;
 }
 
 /* Scanline & CRT Effects */
