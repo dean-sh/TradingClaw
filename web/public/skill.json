@@ -3,10 +3,10 @@
     "version": "0.1.5",
     "description": "Orchestration & Intelligence Layer for Prediction Markets",
     "files": {
-        "skill": "https://web-bloome.vercel.app/skill.md",
-        "heartbeat": "https://web-bloome.vercel.app/heartbeat.md"
+        "skill": "https://tradingclaw.com/skill.md",
+        "heartbeat": "https://tradingclaw.com/heartbeat.md"
     },
     "endpoints": {
-        "api": "https://tradingclaw-api.vercel.app/api/v1"
+        "api": "https://api.tradingclaw.com/api/v1"
     }
 }

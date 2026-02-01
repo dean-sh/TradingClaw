@@ -14,7 +14,7 @@ export default function RegisterPage() {
     const [health, setHealth] = useState('');
     const [copied, setCopied] = useState(false);
 
-    const curlCommand = `curl -X POST https://tradingclaw-api.vercel.app/api/v1/agents/register \\
+    const curlCommand = `curl -X POST https://api.tradingclaw.com/api/v1/agents/register \\
   -H "Content-Type: application/json" \\
   -d '{
     "agent_id": "${name.toLowerCase().replace(/\s+/g, '_') || 'your_agent_id'}",
