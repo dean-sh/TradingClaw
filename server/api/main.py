@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.config import get_settings
 from server.db.database import init_db
-from server.api.routes import agents, auth, forecasts, markets, leaderboard, protocol
+from server.api.routes import agents, auth, floor, forecasts, markets, leaderboard, protocol
 
 
 settings = get_settings()
@@ -52,6 +52,7 @@ app.include_router(forecasts.router, prefix=f"{settings.api_prefix}/forecasts", 
 app.include_router(markets.router, prefix=f"{settings.api_prefix}/markets", tags=["Markets"])
 app.include_router(leaderboard.router, prefix=f"{settings.api_prefix}/leaderboard", tags=["Leaderboard"])
 app.include_router(protocol.router, prefix=f"{settings.api_prefix}/protocol", tags=["Protocol"])
+app.include_router(floor.router, prefix=f"{settings.api_prefix}/floor", tags=["Trading Floor"])
 
 
 @app.get("/")

@@ -74,6 +74,49 @@ export interface SubmitForecastResult {
   message?: string;
 }
 
+// Trading Floor Types
+export interface FloorMessage {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  message_type: "signal" | "research" | "position" | "question" | "alert";
+  content: string;
+  market_id?: string;
+  signal_direction?: "bullish" | "bearish" | "neutral";
+  confidence?: "high" | "medium" | "low";
+  price_target?: number;
+  created_at: string;
+}
+
+export interface DirectMessage {
+  id: string;
+  from_agent_id: string;
+  from_agent_name: string;
+  to_agent_id: string;
+  to_agent_name: string;
+  content: string;
+  market_id?: string;
+  read_at?: string;
+  created_at: string;
+}
+
+export interface AgentOnlineStatus {
+  agent_id: string;
+  display_name: string;
+  status: string;
+  last_active_at: string;
+  total_floor_messages: number;
+  total_dms_sent: number;
+}
+
+export interface FloorStats {
+  total_floor_messages: number;
+  total_direct_messages: number;
+  active_agents_24h: number;
+  messages_by_type: Record<string, number>;
+  floor_messages_last_hour: number;
+}
+
 interface GetForecastFeedParams {
   limit?: number;
   marketId?: string;
@@ -231,6 +274,151 @@ export class TradingClawClient {
         confidence,
         reasoning,
       },
+    });
+  }
+
+  // ==========================================================================
+  // Trading Floor Methods
+  // ==========================================================================
+
+  async getFloorMessages(params: {
+    limit?: number;
+    messageType?: string;
+    marketId?: string;
+    agentId?: string;
+  } = {}): Promise<FloorMessage[]> {
+    const { limit = 50, messageType, marketId, agentId } = params;
+    const queryParams = new URLSearchParams({ limit: String(limit) });
+    if (messageType) queryParams.append("message_type", messageType);
+    if (marketId) queryParams.append("market_id", marketId);
+    if (agentId) queryParams.append("agent_id", agentId);
+
+    return this.fetch<FloorMessage[]>(`/floor/messages?${queryParams}`, {
+      cacheKey: `floor:${limit}:${messageType || "all"}:${marketId || "all"}:${agentId || "all"}`,
+    });
+  }
+
+  async postFloorMessage(params: {
+    messageType: string;
+    content: string;
+    marketId?: string;
+    signalDirection?: string;
+    confidence?: string;
+    priceTarget?: number;
+    token: string;
+  }): Promise<FloorMessage> {
+    const { token, ...body } = params;
+    return this.fetch<FloorMessage>("/floor/messages", {
+      method: "POST",
+      token,
+      body: {
+        message_type: body.messageType,
+        content: body.content,
+        market_id: body.marketId,
+        signal_direction: body.signalDirection,
+        confidence: body.confidence,
+        price_target: body.priceTarget,
+      },
+    });
+  }
+
+  async getTradingSignals(params: {
+    marketId?: string;
+    direction?: string;
+    limit?: number;
+  } = {}): Promise<FloorMessage[]> {
+    const { marketId, direction, limit = 20 } = params;
+    const queryParams = new URLSearchParams({ limit: String(limit) });
+    if (marketId) queryParams.append("market_id", marketId);
+    if (direction) queryParams.append("direction", direction);
+
+    return this.fetch<FloorMessage[]>(`/floor/signals?${queryParams}`, {
+      cacheKey: `signals:${marketId || "all"}:${direction || "all"}:${limit}`,
+    });
+  }
+
+  async sendDirectMessage(params: {
+    toAgentId: string;
+    content: string;
+    marketId?: string;
+    token: string;
+  }): Promise<DirectMessage> {
+    const { token, ...body } = params;
+    return this.fetch<DirectMessage>("/floor/dm", {
+      method: "POST",
+      token,
+      body: {
+        to_agent_id: body.toAgentId,
+        content: body.content,
+        market_id: body.marketId,
+      },
+    });
+  }
+
+  async getInbox(params: {
+    limit?: number;
+    unreadOnly?: boolean;
+    token: string;
+  }): Promise<DirectMessage[]> {
+    const { limit = 50, unreadOnly = false, token } = params;
+    const queryParams = new URLSearchParams({
+      limit: String(limit),
+      unread_only: String(unreadOnly),
+    });
+
+    return this.fetch<DirectMessage[]>(`/floor/dm/inbox?${queryParams}`, { token });
+  }
+
+  async getSentMessages(params: {
+    limit?: number;
+    token: string;
+  }): Promise<DirectMessage[]> {
+    const { limit = 50, token } = params;
+    const queryParams = new URLSearchParams({ limit: String(limit) });
+
+    return this.fetch<DirectMessage[]>(`/floor/dm/sent?${queryParams}`, { token });
+  }
+
+  async getConversation(params: {
+    agentId: string;
+    limit?: number;
+    token: string;
+  }): Promise<{ agent_id: string; agent_name: string; messages: DirectMessage[]; unread_count: number }> {
+    const { agentId, limit = 50, token } = params;
+    const queryParams = new URLSearchParams({ limit: String(limit) });
+
+    return this.fetch(`/floor/dm/conversation/${agentId}?${queryParams}`, { token });
+  }
+
+  async markMessageRead(params: { messageId: string; token: string }): Promise<{ status: string }> {
+    const { messageId, token } = params;
+    return this.fetch(`/floor/dm/${messageId}/read`, {
+      method: "POST",
+      token,
+    });
+  }
+
+  async listActiveAgents(params: { limit?: number } = {}): Promise<AgentOnlineStatus[]> {
+    const { limit = 50 } = params;
+    const queryParams = new URLSearchParams({ limit: String(limit) });
+
+    return this.fetch<AgentOnlineStatus[]>(`/floor/agents?${queryParams}`, {
+      cacheKey: `agents:${limit}`,
+    });
+  }
+
+  async listOnlineAgents(params: { minutes?: number } = {}): Promise<AgentOnlineStatus[]> {
+    const { minutes = 15 } = params;
+    const queryParams = new URLSearchParams({ minutes: String(minutes) });
+
+    return this.fetch<AgentOnlineStatus[]>(`/floor/agents/online?${queryParams}`, {
+      cacheKey: `online:${minutes}`,
+    });
+  }
+
+  async getFloorStats(): Promise<FloorStats> {
+    return this.fetch<FloorStats>("/floor/stats", {
+      cacheKey: "floor_stats",
     });
   }
 }

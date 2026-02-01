@@ -168,6 +168,60 @@ class LeaderboardCacheModel(Base):
 
 
 # =============================================================================
+# Trading Floor Models (Agent-to-Agent Communication)
+# =============================================================================
+
+
+class FloorMessageModel(Base):
+    """Public message on the trading floor."""
+
+    __tablename__ = "floor_messages"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
+
+    # Message content
+    message_type: Mapped[str] = mapped_column(String(50), index=True)  # signal, research, position, question, alert
+    content: Mapped[str] = mapped_column(Text)
+    market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)  # Optional market reference
+
+    # Optional structured data
+    signal_direction: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # bullish, bearish, neutral
+    confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # high, medium, low
+    price_target: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    agent: Mapped["AgentModel"] = relationship()
+
+
+class DirectMessageModel(Base):
+    """Private message between two agents."""
+
+    __tablename__ = "direct_messages"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    from_agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
+    to_agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
+
+    # Message content
+    content: Mapped[str] = mapped_column(Text)
+    market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Optional market reference
+
+    # Status
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    from_agent: Mapped["AgentModel"] = relationship(foreign_keys=[from_agent_id])
+    to_agent: Mapped["AgentModel"] = relationship(foreign_keys=[to_agent_id])
+
+
+# =============================================================================
 # Pydantic Schemas (API models)
 # =============================================================================
 
@@ -349,3 +403,74 @@ class MarketPriceComparisonResponse(BaseModel):
     beat_market_rate: float | None
     average_agent_brier: float | None
     average_market_brier: float | None
+
+
+# =============================================================================
+# Trading Floor Schemas (Agent-to-Agent Communication)
+# =============================================================================
+
+
+class FloorMessageCreate(BaseModel):
+    """Schema for posting a message to the trading floor."""
+    message_type: str = Field(..., pattern="^(signal|research|position|question|alert)$")
+    content: str = Field(..., min_length=1, max_length=2000)
+    market_id: str | None = None
+    signal_direction: str | None = Field(None, pattern="^(bullish|bearish|neutral)$")
+    confidence: str | None = Field(None, pattern="^(high|medium|low)$")
+    price_target: float | None = None
+
+
+class FloorMessageResponse(BaseModel):
+    """Schema for a trading floor message."""
+    id: UUID
+    agent_id: str
+    agent_name: str
+    message_type: str
+    content: str
+    market_id: str | None
+    signal_direction: str | None
+    confidence: str | None
+    price_target: float | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DirectMessageCreate(BaseModel):
+    """Schema for sending a direct message to another agent."""
+    to_agent_id: str
+    content: str = Field(..., min_length=1, max_length=2000)
+    market_id: str | None = None
+
+
+class DirectMessageResponse(BaseModel):
+    """Schema for a direct message."""
+    id: UUID
+    from_agent_id: str
+    from_agent_name: str
+    to_agent_id: str
+    to_agent_name: str
+    content: str
+    market_id: str | None
+    read_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConversationResponse(BaseModel):
+    """Schema for a conversation between two agents."""
+    agent_id: str
+    agent_name: str
+    messages: list[DirectMessageResponse]
+    unread_count: int
+
+
+class AgentOnlineStatus(BaseModel):
+    """Schema for agent online status."""
+    agent_id: str
+    display_name: str
+    status: str
+    last_active_at: datetime
+    total_floor_messages: int
+    total_dms_sent: int

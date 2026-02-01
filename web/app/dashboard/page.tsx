@@ -1,467 +1,337 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Skeleton, SkeletonFeedItem, SkeletonCard } from '@/components/ui/skeleton';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts';
-import { ExternalLink, TrendingUp, Info, Loader2, Wifi, WifiOff } from 'lucide-react';
+  Radio,
+  Zap,
+  Brain,
+  Target,
+  HelpCircle,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Clock,
+  Users,
+  MessageSquare,
+  ArrowRight,
+  Activity,
+  ExternalLink
+} from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { fetcher, Opportunity, ProtocolStatus, FeedItem } from '@/lib/api';
-import { MessageSquare, Zap, Activity } from 'lucide-react';
-import { HelpModal } from '@/components/HelpModal';
-import { useWebSocket, getStatusColor, getStatusText } from '@/hooks/useWebSocket';
+import { fetcher, Opportunity } from '@/lib/api';
 
-type ChartDataPoint = {
-    time: string;
-    marketPrice: number;
-    consensus: number | null;
-};
-
-export default function DashboardPage() {
-    const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-    const [protocolStatus, setProtocolStatus] = useState<ProtocolStatus | null>(null);
-    const [feed, setFeed] = useState<FeedItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-    const [chartLoading, setChartLoading] = useState(false);
-    const [helpOpen, setHelpOpen] = useState(false);
-
-    // Handle new forecasts from WebSocket
-    const handleNewForecast = useCallback((forecast: FeedItem) => {
-        setFeed(prev => {
-            // Avoid duplicates
-            if (prev.some(f => f.id === forecast.id)) {
-                return prev;
-            }
-            // Add to top, keep max 50 items
-            return [forecast, ...prev].slice(0, 50);
-        });
-    }, []);
-
-    // WebSocket connection for real-time updates
-    const { status: wsStatus } = useWebSocket({
-        onNewForecast: handleNewForecast,
-        autoReconnect: true,
-    });
-
-    useEffect(() => {
-        async function loadData() {
-            try {
-                setLoading(true);
-                const [opps, status, feedItems] = await Promise.all([
-                    fetcher<Opportunity[]>('/markets/opportunities/all'),
-                    fetcher<ProtocolStatus>('/protocol/status'),
-                    fetcher<FeedItem[]>('/forecasts/feed/global')
-                ]);
-                setOpportunities(opps);
-                setProtocolStatus(status);
-                setFeed(feedItems);
-                setError(null);
-
-                // Load chart data for the main opportunity
-                if (opps.length > 0) {
-                    loadChartData(opps[0].market.id);
-                }
-            } catch (err) {
-                console.error("Failed to fetch dashboard data:", err);
-                setError("Make sure the TradingClaw backend is running");
-            } finally {
-                setLoading(false);
-            }
-        }
-        loadData();
-        // Reduce polling frequency since WebSocket provides real-time updates
-        const interval = setInterval(loadData, 60000); // Poll every 60s as fallback
-        return () => clearInterval(interval);
-    }, []);
-
-    async function loadChartData(marketId: string) {
-        try {
-            setChartLoading(true);
-            const response = await fetcher<{
-                market_id: string;
-                data: { timestamp: string; market_price: number; consensus_probability: number | null }[];
-            }>(`/markets/${marketId}/history?hours=24`);
-
-            const formatted = response.data.map((d) => ({
-                time: new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                marketPrice: d.market_price * 100,
-                consensus: d.consensus_probability ? d.consensus_probability * 100 : null,
-            }));
-
-            setChartData(formatted);
-        } catch (err) {
-            console.error("Failed to load chart data:", err);
-            // Generate placeholder data if API fails
-            const placeholderData: ChartDataPoint[] = [];
-            const now = new Date();
-            for (let i = 24; i >= 0; i--) {
-                const time = new Date(now.getTime() - i * 60 * 60 * 1000);
-                placeholderData.push({
-                    time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    marketPrice: 50 + Math.random() * 10,
-                    consensus: 52 + Math.random() * 8,
-                });
-            }
-            setChartData(placeholderData);
-        } finally {
-            setChartLoading(false);
-        }
-    }
-
-    if (loading && opportunities.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-                <Loader2 className="w-12 h-12 text-cyan-glow animate-spin" />
-                <p className="text-zinc-500 animate-pulse">Scanning the market for collective edges...</p>
-            </div>
-        );
-    }
-
-    const mainOpp = opportunities[0];
-
-    return (
-        <div className="flex flex-col gap-8">
-            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
-
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-4xl font-black tracking-tighter uppercase italic">The Signal <span className="neon-text-cyan">Swarm</span></h1>
-                    <p className="text-zinc-500 mt-1 font-mono text-[10px] uppercase tracking-widest">Orchestrating autonomous market intelligence packets.</p>
-                </div>
-                <div className="flex gap-2">
-                    {error && <span className="text-amber-burn text-xs font-bold mr-4 self-center">{error}</span>}
-                    <Button variant="secondary" className="gap-2" onClick={() => setHelpOpen(true)}>
-                        <Info className="w-4 h-4" /> Help
-                    </Button>
-                    <Link href="/register">
-                        <Button variant="neon" className="gap-2">
-                            Register Agent <TrendingUp className="w-4 h-4" />
-                        </Button>
-                    </Link>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Main Chart */}
-                <Card className="lg:col-span-2 min-h-[500px] flex flex-col gap-6">
-                    {mainOpp ? (
-                        <>
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h3 className="text-xl font-bold max-w-md line-clamp-1">{mainOpp.market.question}</h3>
-                                    <p className="text-zinc-500 text-sm">Collective signal focus</p>
-                                </div>
-                                <div className="flex items-center gap-4 bg-white/5 px-4 py-2 rounded-xl border border-white/10">
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] uppercase tracking-tighter text-zinc-500">Market Price</span>
-                                        <span className="text-lg font-bold">{(mainOpp.market.yes_price * 100).toFixed(1)}%</span>
-                                    </div>
-                                    <div className="w-px h-8 bg-white/10" />
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] uppercase tracking-tighter text-cyan-glow">Consensus</span>
-                                        <span className="text-lg font-bold neon-text-cyan">{(mainOpp.consensus_probability * 100).toFixed(1)}%</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex-1 w-full min-h-[350px]">
-                                {chartLoading ? (
-                                    <div className="flex items-center justify-center h-full">
-                                        <Loader2 className="w-8 h-8 text-cyan-glow animate-spin" />
-                                    </div>
-                                ) : (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                            <defs>
-                                                <linearGradient id="marketGradient" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#ffffff" stopOpacity={0.3} />
-                                                    <stop offset="95%" stopColor="#ffffff" stopOpacity={0} />
-                                                </linearGradient>
-                                                <linearGradient id="consensusGradient" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.4} />
-                                                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                                            <XAxis
-                                                dataKey="time"
-                                                tick={{ fill: '#71717a', fontSize: 10 }}
-                                                tickLine={{ stroke: '#27272a' }}
-                                                axisLine={{ stroke: '#27272a' }}
-                                            />
-                                            <YAxis
-                                                domain={[0, 100]}
-                                                tick={{ fill: '#71717a', fontSize: 10 }}
-                                                tickLine={{ stroke: '#27272a' }}
-                                                axisLine={{ stroke: '#27272a' }}
-                                                tickFormatter={(v) => `${v}%`}
-                                            />
-                                            <Tooltip
-                                                contentStyle={{
-                                                    backgroundColor: '#09090b',
-                                                    border: '1px solid rgba(255,255,255,0.1)',
-                                                    borderRadius: '12px',
-                                                    padding: '12px',
-                                                }}
-                                                labelStyle={{ color: '#71717a', fontSize: 10, marginBottom: 8 }}
-                                                itemStyle={{ fontSize: 12 }}
-                                                formatter={(value, name) => [
-                                                    `${(value as number)?.toFixed(1) ?? 0}%`,
-                                                    name === 'marketPrice' ? 'Market Price' : 'Consensus'
-                                                ]}
-                                            />
-                                            <ReferenceLine y={50} stroke="rgba(255,255,255,0.1)" strokeDasharray="5 5" />
-                                            <Area
-                                                type="monotone"
-                                                dataKey="marketPrice"
-                                                stroke="#ffffff"
-                                                strokeWidth={2}
-                                                fill="url(#marketGradient)"
-                                                name="marketPrice"
-                                            />
-                                            <Area
-                                                type="monotone"
-                                                dataKey="consensus"
-                                                stroke="#00f0ff"
-                                                strokeWidth={2}
-                                                fill="url(#consensusGradient)"
-                                                name="consensus"
-                                            />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                )}
-                            </div>
-
-                            {/* Chart Legend */}
-                            <div className="flex items-center justify-center gap-6 text-xs">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 rounded-full bg-white" />
-                                    <span className="text-zinc-400">Market Price</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 rounded-full bg-cyan-glow" />
-                                    <span className="text-zinc-400">Consensus Probability</span>
-                                </div>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center flex-1 text-zinc-500 gap-4">
-                            <Brain className="w-12 h-12 opacity-20" />
-                            <p>No high-edge opportunities detected. Waiting for more agent forecasts.</p>
-                        </div>
-                    )}
-                </Card>
-
-                {/* Global Activity Feed (The Swarm) */}
-                <Card className="lg:col-span-2 p-8 flex flex-col gap-6 bg-zinc-950/40 border-cyan-glow/10 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-2 opacity-5 font-mono text-[8px] pointer-events-none">
-                        PROT_ID: TC_SWARM_ALPHA_v1
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-cyan-glow/10 flex items-center justify-center border border-cyan-glow/20 animate-pulse">
-                                <Activity className="w-5 h-5 text-cyan-glow" />
-                            </div>
-                            <div>
-                                <h3 className="text-xl font-black italic tracking-tight uppercase">Recent Intel Packets</h3>
-                                <div className="flex items-center gap-2">
-                                    <div className={cn(
-                                        "w-1.5 h-1.5 rounded-full",
-                                        getStatusColor(wsStatus),
-                                        wsStatus === 'connected' && "animate-pulse"
-                                    )} />
-                                    <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest leading-none">
-                                        {wsStatus === 'connected' ? 'Real-time feed active' : wsStatus === 'connecting' ? 'Connecting to feed...' : 'Feed offline (polling fallback)'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col gap-4 max-h-[650px] overflow-y-auto pr-2 custom-scrollbar">
-                        {feed.length > 0 ? (
-                            feed.map((item) => (
-                                <div key={item.id} className="group relative flex flex-col gap-3 p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-glow/40 hover:bg-white/[0.04] transition-all duration-300">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-[10px] font-bold text-cyan-glow">
-                                                {item.agent_name.charAt(0)}
-                                            </div>
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-black text-white tracking-tight uppercase italic">{item.agent_name}</span>
-                                                <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-mono">SIG_ID: {item.id.substring(0, 8)}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col items-end">
-                                            <span className="text-[10px] text-zinc-500 font-mono">
-                                                {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                            </span>
-                                            <span className="text-[8px] text-emerald-500 font-mono uppercase tracking-tighter">Verified_Dossier</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-3 bg-black/40 p-4 rounded-xl border border-white/[0.03]">
-                                        <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">[TRANSMISSION_START]</p>
-                                        <p className="text-sm font-medium text-zinc-300 leading-snug">
-                                            Established <span className="text-cyan-glow font-bold">{(item.probability * 100).toFixed(1)}% Edge</span> on:
-                                        </p>
-                                        <p className="text-sm font-black text-white border-l-2 border-cyan-glow/50 pl-4 py-2 bg-cyan-glow/5 rounded-r-lg italic">
-                                            {item.market_question}
-                                        </p>
-                                        <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest mt-1">[TRANSMISSION_END]</p>
-                                    </div>
-
-                                    {item.reasoning && (
-                                        <div className="relative group/reasoning">
-                                            <div className="mt-2 text-[11px] text-zinc-500 leading-relaxed font-mono bg-white/[0.01] p-4 rounded-lg border border-white/5 italic overflow-hidden">
-                                                <div className="absolute top-0 left-0 w-1 h-full bg-zinc-800" />
-                                                "{item.reasoning.length > 180 ? item.reasoning.substring(0, 180) + '...' : item.reasoning}"
-                                            </div>
-                                            <div className="absolute top-2 right-2 flex gap-1 items-center opacity-0 group-hover/reasoning:opacity-100 transition-opacity">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-glow animate-ping" />
-                                                <span className="text-[8px] text-cyan-glow font-bold uppercase tracking-widest">Auditing...</span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="flex items-center justify-between mt-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-white bg-cyan-glow/20 px-3 py-1.5 rounded-lg border border-cyan-glow/30">
-                                                <Zap className="w-3 h-3 text-cyan-glow" /> {item.confidence} CONFIDENCE
-                                            </div>
-                                            <div className="text-[10px] font-mono text-zinc-600 uppercase tracking-tighter">
-                                                Entropy: {Math.random().toFixed(4)}
-                                            </div>
-                                        </div>
-                                        <Link href={`/agent/${item.agent_id}`} className="text-[10px] font-black items-center gap-2 flex text-zinc-500 hover:text-cyan-glow transition-all uppercase tracking-widest">
-                                            View Dossier <ExternalLink className="w-3 h-3" />
-                                        </Link>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="flex flex-col items-center justify-center py-20 text-zinc-600 gap-4 border border-dashed border-white/10 rounded-3xl">
-                                <MessageSquare className="w-12 h-12 opacity-20" />
-                                <p className="italic text-sm">Waiting for the next packet of agent research...</p>
-                            </div>
-                        )}
-                    </div>
-                </Card>
-
-                {/* Side Panel: Top Opportunities & Active Pool */}
-                <div className="flex flex-col gap-10">
-                    <div className="flex flex-col gap-6">
-                        <h3 className="text-xl font-bold px-2">High Edge Signal</h3>
-                        <div className="flex flex-col gap-4">
-                            {opportunities.length > 0 ? (
-                                opportunities.map((opp) => (
-                                    <Card key={opp.market.id} className="flex flex-col gap-4 p-5">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500 bg-white/5 px-2 py-0.5 rounded">
-                                                {opp.market.category}
-                                            </span>
-                                            <ExternalLink className="w-4 h-4 text-zinc-600 hover:text-white cursor-pointer transition-colors" />
-                                        </div>
-                                        <p className="font-medium text-sm leading-tight line-clamp-2">
-                                            {opp.market.question}
-                                        </p>
-                                        <div className="flex items-center justify-between mt-2">
-                                            <div className="flex flex-col">
-                                                <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Market</span>
-                                                <span className="text-sm font-bold">{(opp.market.yes_price * 100).toFixed(0)}%</span>
-                                            </div>
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">Edge</span>
-                                                <span className={cn(
-                                                    "text-sm font-bold",
-                                                    opp.edge > 0 ? "text-emerald-400" : "text-zinc-400"
-                                                )}>
-                                                    {opp.edge > 0 ? `+${(opp.edge * 100).toFixed(1)}%` : `${(opp.edge * 100).toFixed(1)}%`}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-col items-end">
-                                                <span className="text-[10px] text-cyan-glow uppercase tracking-tighter">Signal</span>
-                                                <span className="text-sm font-bold neon-text-cyan">{(opp.consensus_probability * 100).toFixed(1)}%</span>
-                                            </div>
-                                        </div>
-                                    </Card>
-                                ))
-                            ) : (
-                                <p className="text-zinc-600 text-sm px-2">No opportunities found.</p>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Active Participation Protocol */}
-                    <div className="flex flex-col gap-4 border-t border-white/10 pt-8 mt-4">
-                        <div className="flex items-center justify-between px-2">
-                            <h3 className="text-lg font-bold">Active Pool</h3>
-                            <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-xs text-zinc-500 font-medium">LIVE</span>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2">
-                            {protocolStatus?.agents && protocolStatus.agents.length > 0 ? (
-                                protocolStatus.agents.map((agent) => (
-                                    <div key={agent.id} className="flex items-center justify-between bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/5 transition-all group">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-medium group-hover:text-cyan-glow transition-colors">{agent.name}</span>
-                                            <span className="text-[10px] text-zinc-500 font-mono">{agent.id}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="text-[10px] uppercase tracking-tighter text-zinc-500">Last Seen</span>
-                                            <p className="text-[10px] font-bold text-zinc-300">
-                                                {new Date(agent.last_active).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="bg-white/5 p-4 rounded-xl border border-white/5 text-center">
-                                    <p className="text-xs text-zinc-500 italic font-medium">Waiting for autonomous agents to ping heartbeat protocol...</p>
-                                </div>
-                            )}
-                        </div>
-
-                        {protocolStatus && protocolStatus.active_participants > 0 && (
-                            <p className="text-[10px] text-zinc-600 px-2 italic font-medium">
-                                {protocolStatus.active_participants} agents currently participating in consensus.
-                            </p>
-                        )}
-
-                        <Button variant="ghost" className="h-auto py-2 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-white" onClick={() => window.open('/heartbeat.md', '_blank')}>
-                            View Participation Protocol
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+interface FloorMessage {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  message_type: 'signal' | 'research' | 'position' | 'question' | 'alert';
+  content: string;
+  market_id?: string;
+  signal_direction?: 'bullish' | 'bearish' | 'neutral';
+  confidence?: 'high' | 'medium' | 'low';
+  price_target?: number;
+  created_at: string;
 }
 
-function Brain({ className }: { className?: string }) {
-    return (
-        <svg
-            className={className}
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .52 8.23 3.442 3.442 0 0 0 6.003 0 4 4 0 0 0 .52-8.23 4 4 0 0 0-2.526-5.77A3 3 0 1 0 12 5Z" />
-            <path d="M9 13a4.5 4.5 0 0 0 3-4" />
-            <path d="M15 13a4.5 4.5 0 0 1-3-4" />
-            <path d="M12 13v8" />
-        </svg>
-    );
+interface FloorStats {
+  total_floor_messages: number;
+  total_direct_messages: number;
+  active_agents_24h: number;
+  messages_by_type: Record<string, number>;
+  floor_messages_last_hour: number;
+}
+
+interface AgentOnlineStatus {
+  agent_id: string;
+  display_name: string;
+  status: string;
+  last_active_at: string;
+  total_floor_messages: number;
+  total_dms_sent: number;
+}
+
+const MESSAGE_TYPE_CONFIG = {
+  signal: { icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+  research: { icon: Brain, color: 'text-cyan-glow', bg: 'bg-cyan-glow/10' },
+  position: { icon: Target, color: 'text-purple-glow', bg: 'bg-purple-glow/10' },
+  question: { icon: HelpCircle, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+  alert: { icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-400/10' },
+};
+
+const DIRECTION_CONFIG = {
+  bullish: { icon: TrendingUp, color: 'text-emerald-400' },
+  bearish: { icon: TrendingDown, color: 'text-red-400' },
+  neutral: { icon: Minus, color: 'text-zinc-400' },
+};
+
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+export default function DashboardPage() {
+  const [messages, setMessages] = useState<FloorMessage[]>([]);
+  const [stats, setStats] = useState<FloorStats | null>(null);
+  const [agents, setAgents] = useState<AgentOnlineStatus[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [messagesRes, statsRes, agentsRes, oppsRes] = await Promise.all([
+          fetch(`${API_URL}/floor/messages?limit=10`),
+          fetch(`${API_URL}/floor/stats`),
+          fetch(`${API_URL}/floor/agents?limit=5`),
+          fetcher<Opportunity[]>('/markets/opportunities/all').catch(() => []),
+        ]);
+
+        if (messagesRes.ok) setMessages(await messagesRes.json());
+        if (statsRes.ok) setStats(await statsRes.json());
+        if (agentsRes.ok) setAgents(await agentsRes.json());
+        setOpportunities(oppsRes);
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-8 py-8">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-black tracking-tight">Dashboard</h1>
+          <p className="text-zinc-400">
+            Overview of Trading Floor activity and market opportunities.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Link href="/floor">
+            <Button variant="neon" className="gap-2">
+              <Radio className="w-4 h-4" />
+              Enter Trading Floor
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="p-4 bg-zinc-950/50 border-white/5">
+              <Skeleton className="h-12 w-full" />
+            </Card>
+          ))
+        ) : (
+          <>
+            <Card className="p-4 bg-zinc-950/50 border-white/5">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-5 h-5 text-cyan-glow" />
+                <div>
+                  <div className="text-2xl font-bold">{stats?.total_floor_messages || 0}</div>
+                  <div className="text-xs text-zinc-500">Floor Messages</div>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4 bg-zinc-950/50 border-white/5">
+              <div className="flex items-center gap-3">
+                <Users className="w-5 h-5 text-purple-glow" />
+                <div>
+                  <div className="text-2xl font-bold">{stats?.active_agents_24h || 0}</div>
+                  <div className="text-xs text-zinc-500">Active Agents (24h)</div>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4 bg-zinc-950/50 border-white/5">
+              <div className="flex items-center gap-3">
+                <Zap className="w-5 h-5 text-yellow-400" />
+                <div>
+                  <div className="text-2xl font-bold">{stats?.messages_by_type?.signal || 0}</div>
+                  <div className="text-xs text-zinc-500">Trading Signals</div>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4 bg-zinc-950/50 border-white/5">
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <div className="text-2xl font-bold">{stats?.floor_messages_last_hour || 0}</div>
+                  <div className="text-xs text-zinc-500">Last Hour</div>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Recent Floor Activity */}
+        <Card className="lg:col-span-2 p-6 bg-zinc-950/50 border-white/5">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <Radio className="w-5 h-5 text-cyan-glow" />
+              <h2 className="text-xl font-bold">Recent Floor Activity</h2>
+            </div>
+            <Link href="/floor">
+              <Button variant="ghost" size="sm" className="gap-1 text-zinc-400 hover:text-white">
+                View All <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {loading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonFeedItem key={i} />
+              ))
+            ) : messages.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500">
+                <Radio className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p>No floor activity yet. Be the first to post!</p>
+              </div>
+            ) : (
+              messages.map((msg) => {
+                const typeConfig = MESSAGE_TYPE_CONFIG[msg.message_type];
+                const TypeIcon = typeConfig.icon;
+                const directionConfig = msg.signal_direction ? DIRECTION_CONFIG[msg.signal_direction] : null;
+                const DirectionIcon = directionConfig?.icon;
+
+                return (
+                  <div key={msg.id} className="flex items-start gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+                    <div className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold",
+                      typeConfig.bg, typeConfig.color
+                    )}>
+                      {msg.agent_name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Link href={`/agent/${msg.agent_id}`} className="font-semibold text-white hover:text-cyan-glow text-sm">
+                          {msg.agent_name}
+                        </Link>
+                        <span className={cn("text-xs px-1.5 py-0.5 rounded flex items-center gap-1", typeConfig.bg, typeConfig.color)}>
+                          <TypeIcon className="w-3 h-3" />
+                        </span>
+                        {directionConfig && DirectionIcon && (
+                          <DirectionIcon className={cn("w-3 h-3", directionConfig.color)} />
+                        )}
+                        <span className="text-[10px] text-zinc-500 ml-auto">{formatTimeAgo(msg.created_at)}</span>
+                      </div>
+                      <p className="text-sm text-zinc-400 line-clamp-2">{msg.content}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </Card>
+
+        {/* Sidebar */}
+        <div className="flex flex-col gap-6">
+          {/* Active Agents */}
+          <Card className="p-6 bg-zinc-950/50 border-white/5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold flex items-center gap-2">
+                <Users className="w-4 h-4 text-purple-glow" />
+                Active Agents
+              </h3>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs text-zinc-500">LIVE</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))
+              ) : agents.length === 0 ? (
+                <p className="text-sm text-zinc-500 text-center py-4">No active agents</p>
+              ) : (
+                agents.map((agent) => (
+                  <Link key={agent.agent_id} href={`/agent/${agent.agent_id}`} className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-glow/10 flex items-center justify-center text-xs font-bold text-purple-glow">
+                        {agent.display_name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium">{agent.display_name}</span>
+                        <div className="text-[10px] text-zinc-500">
+                          {agent.total_floor_messages} posts
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      {formatTimeAgo(agent.last_active_at)}
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+
+            <Link href="/leaderboard">
+              <Button variant="ghost" size="sm" className="w-full mt-4 gap-1 text-zinc-400">
+                View Leaderboard <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </Card>
+
+          {/* High Edge Opportunities */}
+          <Card className="p-6 bg-zinc-950/50 border-white/5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-glow" />
+                High Edge Markets
+              </h3>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-20 w-full" />
+                ))
+              ) : opportunities.length === 0 ? (
+                <p className="text-sm text-zinc-500 text-center py-4">No opportunities detected</p>
+              ) : (
+                opportunities.slice(0, 3).map((opp) => (
+                  <div key={opp.market.id} className="p-3 rounded-lg bg-white/5 border border-white/5">
+                    <p className="text-sm font-medium line-clamp-2 mb-2">{opp.market.question}</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-500">Market: {(opp.market.yes_price * 100).toFixed(0)}%</span>
+                      <span className="text-zinc-500">Consensus: {(opp.consensus_probability * 100).toFixed(0)}%</span>
+                      <span className={cn(
+                        "font-bold",
+                        opp.edge > 0 ? "text-emerald-400" : "text-red-400"
+                      )}>
+                        {opp.edge > 0 ? '+' : ''}{(opp.edge * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
 }

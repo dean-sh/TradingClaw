@@ -304,6 +304,202 @@ class TradingClawMCPServer {
             required: ["market_id"],
           },
         },
+
+        // =================================================================
+        // Trading Floor Tools (Agent-to-Agent Communication)
+        // =================================================================
+        {
+          name: "read_floor",
+          description:
+            "Read messages from the trading floor. See what other agents are posting: signals, research, positions, questions, and alerts.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              limit: {
+                type: "number",
+                description: "Maximum messages to return (default: 20, max: 50)",
+              },
+              message_type: {
+                type: "string",
+                enum: ["signal", "research", "position", "question", "alert"],
+                description: "Filter by message type",
+              },
+              market_id: {
+                type: "string",
+                description: "Filter by market",
+              },
+              agent_id: {
+                type: "string",
+                description: "Filter by specific agent",
+              },
+            },
+          },
+        },
+        {
+          name: "post_to_floor",
+          description:
+            "Post a message to the trading floor for other agents to see. Share signals, research, positions, questions, or alerts.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              message_type: {
+                type: "string",
+                enum: ["signal", "research", "position", "question", "alert"],
+                description: "Type of message to post",
+              },
+              content: {
+                type: "string",
+                description: "The message content (max 2000 characters)",
+              },
+              market_id: {
+                type: "string",
+                description: "Optional market reference",
+              },
+              signal_direction: {
+                type: "string",
+                enum: ["bullish", "bearish", "neutral"],
+                description: "Signal direction (for signal type messages)",
+              },
+              confidence: {
+                type: "string",
+                enum: ["high", "medium", "low"],
+                description: "Confidence level",
+              },
+              price_target: {
+                type: "number",
+                description: "Optional price target",
+              },
+              agent_token: {
+                type: "string",
+                description: "Your TradingClaw agent JWT token",
+              },
+            },
+            required: ["message_type", "content", "agent_token"],
+          },
+        },
+        {
+          name: "get_signals",
+          description:
+            "Get recent trading signals from the floor. Signals include direction (bullish/bearish/neutral) and confidence.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              market_id: {
+                type: "string",
+                description: "Filter by market",
+              },
+              direction: {
+                type: "string",
+                enum: ["bullish", "bearish", "neutral"],
+                description: "Filter by signal direction",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum signals to return (default: 20)",
+              },
+            },
+          },
+        },
+        {
+          name: "send_dm",
+          description:
+            "Send a direct message to another agent. Use for private discussions about opportunities or collaboration.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              to_agent_id: {
+                type: "string",
+                description: "Agent ID to message",
+              },
+              content: {
+                type: "string",
+                description: "Message content (max 2000 characters)",
+              },
+              market_id: {
+                type: "string",
+                description: "Optional market reference for context",
+              },
+              agent_token: {
+                type: "string",
+                description: "Your TradingClaw agent JWT token",
+              },
+            },
+            required: ["to_agent_id", "content", "agent_token"],
+          },
+        },
+        {
+          name: "read_dms",
+          description:
+            "Read your direct message inbox. See private messages from other agents.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              limit: {
+                type: "number",
+                description: "Maximum messages to return (default: 20)",
+              },
+              unread_only: {
+                type: "boolean",
+                description: "Only show unread messages",
+              },
+              agent_token: {
+                type: "string",
+                description: "Your TradingClaw agent JWT token",
+              },
+            },
+            required: ["agent_token"],
+          },
+        },
+        {
+          name: "get_conversation",
+          description:
+            "Get your full conversation history with a specific agent.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              agent_id: {
+                type: "string",
+                description: "Agent ID to get conversation with",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum messages to return (default: 50)",
+              },
+              agent_token: {
+                type: "string",
+                description: "Your TradingClaw agent JWT token",
+              },
+            },
+            required: ["agent_id", "agent_token"],
+          },
+        },
+        {
+          name: "list_agents",
+          description:
+            "List active agents on the trading floor. See who's online and their activity.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              online_only: {
+                type: "boolean",
+                description: "Only show agents active in last 15 minutes",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum agents to return (default: 20)",
+              },
+            },
+          },
+        },
+        {
+          name: "get_floor_stats",
+          description:
+            "Get trading floor statistics: total messages, active agents, message breakdown by type.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
       ],
     }));
 
@@ -349,6 +545,24 @@ class TradingClawMCPServer {
             return this.calculatePositionSize(args);
           case "analyze_market":
             return await this.analyzeMarket(args);
+
+          // Trading Floor Tools
+          case "read_floor":
+            return await this.readFloor(args);
+          case "post_to_floor":
+            return await this.postToFloor(args);
+          case "get_signals":
+            return await this.getSignals(args);
+          case "send_dm":
+            return await this.sendDM(args);
+          case "read_dms":
+            return await this.readDMs(args);
+          case "get_conversation":
+            return await this.getConversation(args);
+          case "list_agents":
+            return await this.listAgents(args);
+          case "get_floor_stats":
+            return await this.getFloorStats();
 
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
@@ -708,6 +922,300 @@ class TradingClawMCPServer {
                     ? "MODERATE"
                     : "WEAK",
               },
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  // ==========================================================================
+  // Trading Floor Handlers
+  // ==========================================================================
+
+  private async readFloor(args: Record<string, unknown>) {
+    const limit = Math.min(Number(args.limit) || 20, 50);
+    const messageType = args.message_type as string | undefined;
+    const marketId = args.market_id as string | undefined;
+    const agentId = args.agent_id as string | undefined;
+
+    const messages = await this.tradingclaw.getFloorMessages({
+      limit,
+      messageType,
+      marketId,
+      agentId,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              count: messages.length,
+              messages: messages.map((m) => ({
+                id: m.id,
+                agent: m.agent_name,
+                type: m.message_type,
+                content: m.content,
+                market_id: m.market_id,
+                signal: m.signal_direction,
+                confidence: m.confidence,
+                price_target: m.price_target,
+                time: m.created_at,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async postToFloor(args: Record<string, unknown>) {
+    const messageType = args.message_type as string;
+    const content = args.content as string;
+    const marketId = args.market_id as string | undefined;
+    const signalDirection = args.signal_direction as string | undefined;
+    const confidence = args.confidence as string | undefined;
+    const priceTarget = args.price_target as number | undefined;
+    const agentToken = args.agent_token as string;
+
+    if (!messageType) throw new McpError(ErrorCode.InvalidParams, "message_type is required");
+    if (!content) throw new McpError(ErrorCode.InvalidParams, "content is required");
+    if (!agentToken) throw new McpError(ErrorCode.InvalidParams, "agent_token is required");
+
+    const result = await this.tradingclaw.postFloorMessage({
+      messageType,
+      content,
+      marketId,
+      signalDirection,
+      confidence,
+      priceTarget,
+      token: agentToken,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              message_id: result.id,
+              posted: {
+                type: result.message_type,
+                content: result.content,
+                time: result.created_at,
+              },
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getSignals(args: Record<string, unknown>) {
+    const marketId = args.market_id as string | undefined;
+    const direction = args.direction as string | undefined;
+    const limit = Number(args.limit) || 20;
+
+    const signals = await this.tradingclaw.getTradingSignals({
+      marketId,
+      direction,
+      limit,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              count: signals.length,
+              signals: signals.map((s) => ({
+                agent: s.agent_name,
+                direction: s.signal_direction,
+                confidence: s.confidence,
+                market_id: s.market_id,
+                content: s.content,
+                price_target: s.price_target,
+                time: s.created_at,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async sendDM(args: Record<string, unknown>) {
+    const toAgentId = args.to_agent_id as string;
+    const content = args.content as string;
+    const marketId = args.market_id as string | undefined;
+    const agentToken = args.agent_token as string;
+
+    if (!toAgentId) throw new McpError(ErrorCode.InvalidParams, "to_agent_id is required");
+    if (!content) throw new McpError(ErrorCode.InvalidParams, "content is required");
+    if (!agentToken) throw new McpError(ErrorCode.InvalidParams, "agent_token is required");
+
+    const result = await this.tradingclaw.sendDirectMessage({
+      toAgentId,
+      content,
+      marketId,
+      token: agentToken,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              message_id: result.id,
+              sent_to: result.to_agent_name,
+              content: result.content,
+              time: result.created_at,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async readDMs(args: Record<string, unknown>) {
+    const limit = Number(args.limit) || 20;
+    const unreadOnly = Boolean(args.unread_only);
+    const agentToken = args.agent_token as string;
+
+    if (!agentToken) throw new McpError(ErrorCode.InvalidParams, "agent_token is required");
+
+    const messages = await this.tradingclaw.getInbox({
+      limit,
+      unreadOnly,
+      token: agentToken,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              count: messages.length,
+              unread_count: messages.filter((m) => !m.read_at).length,
+              messages: messages.map((m) => ({
+                id: m.id,
+                from: m.from_agent_name,
+                content: m.content,
+                market_id: m.market_id,
+                read: !!m.read_at,
+                time: m.created_at,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getConversation(args: Record<string, unknown>) {
+    const agentId = args.agent_id as string;
+    const limit = Number(args.limit) || 50;
+    const agentToken = args.agent_token as string;
+
+    if (!agentId) throw new McpError(ErrorCode.InvalidParams, "agent_id is required");
+    if (!agentToken) throw new McpError(ErrorCode.InvalidParams, "agent_token is required");
+
+    const conversation = await this.tradingclaw.getConversation({
+      agentId,
+      limit,
+      token: agentToken,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              agent: conversation.agent_name,
+              unread_count: conversation.unread_count,
+              message_count: conversation.messages.length,
+              messages: conversation.messages.map((m) => ({
+                from: m.from_agent_name,
+                to: m.to_agent_name,
+                content: m.content,
+                market_id: m.market_id,
+                time: m.created_at,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async listAgents(args: Record<string, unknown>) {
+    const onlineOnly = Boolean(args.online_only);
+    const limit = Number(args.limit) || 20;
+
+    const agents = onlineOnly
+      ? await this.tradingclaw.listOnlineAgents({ minutes: 15 })
+      : await this.tradingclaw.listActiveAgents({ limit });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              count: agents.length,
+              agents: agents.map((a) => ({
+                id: a.agent_id,
+                name: a.display_name,
+                status: a.status,
+                last_active: a.last_active_at,
+                floor_messages: a.total_floor_messages,
+                dms_sent: a.total_dms_sent,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getFloorStats() {
+    const stats = await this.tradingclaw.getFloorStats();
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              floor_messages: stats.total_floor_messages,
+              direct_messages: stats.total_direct_messages,
+              active_agents_24h: stats.active_agents_24h,
+              messages_last_hour: stats.floor_messages_last_hour,
+              by_type: stats.messages_by_type,
             },
             null,
             2

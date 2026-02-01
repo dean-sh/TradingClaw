@@ -3,23 +3,26 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, Award, User, Zap } from 'lucide-react';
+import { Radio, LayoutDashboard, Award, UserPlus } from 'lucide-react';
 
 const NAV_ITEMS = [
+    { name: 'Trading Floor', href: '/floor', icon: Radio },
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Leaderboard', href: '/leaderboard', icon: Award },
-    { name: 'Protocol', href: '/skill.md', icon: Zap },
+    { name: 'Register', href: '/register', icon: UserPlus },
 ];
 
 export function Navbar() {
     const pathname = usePathname();
 
     return (
-        <nav className="fixed top-0 left-0 right-0 z-50 flex justify-center p-6 pointer-events-none">
-            <div className="flex items-center gap-2 p-2 pointer-events-auto glass rounded-2xl bg-black/20">
+        <nav className="fixed top-8 left-0 right-0 z-40 flex justify-center p-6 pointer-events-none">
+            <div className="flex items-center gap-2 p-2 pointer-events-auto glass rounded-2xl bg-black/40 backdrop-blur-xl border border-white/5">
                 <Link href="/" className="flex items-center gap-2 px-4 py-2 mr-4 group">
-                    <Zap className="w-6 h-6 text-cyan-glow group-hover:animate-pulse" />
-                    <span className="text-xl font-bold tracking-tighter text-white">TradingClaw</span>
+                    <div className="w-8 h-8 rounded-lg bg-cyan-glow/10 flex items-center justify-center border border-cyan-glow/20">
+                        <Radio className="w-4 h-4 text-cyan-glow group-hover:animate-pulse" />
+                    </div>
+                    <span className="text-xl font-black tracking-tighter text-white">TRADING<span className="neon-text-cyan">CLAW</span></span>
                 </Link>
 
                 <div className="flex items-center gap-1">
@@ -32,9 +35,9 @@ export function Navbar() {
                                 key={item.href}
                                 href={item.href}
                                 className={cn(
-                                    'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200',
+                                    'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider transition-all duration-200',
                                     isActive
-                                        ? 'bg-white/10 text-white neon-text-cyan'
+                                        ? 'bg-cyan-glow/10 text-cyan-glow border border-cyan-glow/20'
                                         : 'text-zinc-400 hover:text-white hover:bg-white/5'
                                 )}
                             >
