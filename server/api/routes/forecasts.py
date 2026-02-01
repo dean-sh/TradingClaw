@@ -16,6 +16,7 @@ from server.db.database import get_db
 from server.db.models import (
     AgentModel,
     ConsensusResponse,
+    FeedItemResponse,
     ForecastCreate,
     ForecastModel,
     ForecastResponse,
