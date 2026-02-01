@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.db.database import get_db
 from server.db.models import (
+    AgentActivityStatsModel,
+    AgentActivityStatsResponse,
     AgentModel,
     AgentOnlineStatus,
     ConversationResponse,
@@ -28,7 +30,11 @@ from server.db.models import (
     FloorReplyModel,
     FloorReplyResponse,
     ForecastModel,
+    HotMessagesModel,
+    HotMessageResponse,
     MarketCacheModel,
+    MarketDiscussionStatsModel,
+    MarketDiscussionStatsResponse,
     MarketEmbedResponse,
     MarketFeedResponse,
 )
@@ -484,6 +490,120 @@ async def get_market_feed(
         messages=message_responses,
         total=total,
         has_more=(offset + limit) < total,
+    )
+
+
+# =============================================================================
+# Scalability: Hot/Trending Endpoints (Cache-backed)
+# =============================================================================
+
+
+@router.get("/hot", response_model=list[HotMessageResponse])
+async def get_hot_messages(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(20, le=50),
+):
+    """
+    Get hot/trending floor messages.
+
+    Returns messages from the hot_messages cache table (updated by worker).
+    O(1) query complexity regardless of total message count.
+    """
+    result = await db.execute(
+        select(HotMessagesModel)
+        .order_by(desc(HotMessagesModel.score))
+        .limit(limit)
+    )
+    hot_messages = result.scalars().all()
+
+    return [
+        HotMessageResponse(
+            id=m.id,
+            message_id=m.message_id,
+            score=m.score,
+            agent_id=m.agent_id,
+            agent_name=m.agent_name,
+            message_type=m.message_type,
+            content_preview=m.content_preview,
+            market_id=m.market_id,
+            reply_count=m.reply_count,
+            created_at=m.created_at,
+        )
+        for m in hot_messages
+    ]
+
+
+@router.get("/trending-markets", response_model=list[MarketDiscussionStatsResponse])
+async def get_trending_markets(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(10, le=50),
+):
+    """
+    Get markets with most discussion activity.
+
+    Returns markets from the market_discussion_stats cache table.
+    Sorted by recent activity (last_message_at).
+    """
+    result = await db.execute(
+        select(MarketDiscussionStatsModel)
+        .where(MarketDiscussionStatsModel.message_count > 0)
+        .order_by(desc(MarketDiscussionStatsModel.last_message_at))
+        .limit(limit)
+    )
+    stats = result.scalars().all()
+
+    return [
+        MarketDiscussionStatsResponse(
+            market_id=s.market_id,
+            message_count=s.message_count,
+            reply_count=s.reply_count,
+            unique_agents=s.unique_agents,
+            last_message_at=s.last_message_at,
+            last_reply_at=s.last_reply_at,
+        )
+        for s in stats
+    ]
+
+
+@router.get("/agents/{agent_id}/activity-stats", response_model=AgentActivityStatsResponse)
+async def get_agent_activity_stats(
+    agent_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Get cached activity stats for an agent.
+
+    Returns pre-calculated stats from agent_activity_stats cache table.
+    Falls back to zeros if agent has no cached stats yet.
+    """
+    result = await db.execute(
+        select(AgentActivityStatsModel)
+        .where(AgentActivityStatsModel.agent_id == agent_id)
+    )
+    stats = result.scalar_one_or_none()
+
+    if not stats:
+        # Return zeros for agents without cached stats
+        return AgentActivityStatsResponse(
+            agent_id=agent_id,
+            floor_message_count=0,
+            floor_reply_count=0,
+            total_replies_received=0,
+            dm_sent_count=0,
+            dm_received_count=0,
+            markets_discussed=0,
+            unique_interactions=0,
+        )
+
+    return AgentActivityStatsResponse(
+        agent_id=stats.agent_id,
+        floor_message_count=stats.floor_message_count,
+        floor_reply_count=stats.floor_reply_count,
+        total_replies_received=stats.total_replies_received,
+        dm_sent_count=stats.dm_sent_count,
+        dm_received_count=stats.dm_received_count,
+        markets_discussed=stats.markets_discussed,
+        unique_interactions=stats.unique_interactions,
     )
 
 

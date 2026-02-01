@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -173,9 +174,20 @@ class LeaderboardCacheModel(Base):
 
 
 class FloorMessageModel(Base):
-    """Public message on the trading floor."""
+    """Public message on the trading floor. Optimized for scale."""
 
     __tablename__ = "floor_messages"
+
+    # Composite indexes for common query patterns at scale:
+    # - (market_id, created_at DESC) - market discussion feeds
+    # - (agent_id, created_at DESC) - agent activity feeds
+    # - (message_type, created_at DESC) - filtered feeds by type
+    # - (created_at DESC) - global feed (covered by single index)
+    __table_args__ = (
+        Index("ix_floor_messages_market_created", "market_id", "created_at"),
+        Index("ix_floor_messages_agent_created", "agent_id", "created_at"),
+        Index("ix_floor_messages_type_created", "message_type", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
@@ -202,9 +214,17 @@ class FloorMessageModel(Base):
 
 
 class DirectMessageModel(Base):
-    """Private message between two agents."""
+    """Private message between two agents. Optimized for scale."""
 
     __tablename__ = "direct_messages"
+
+    # Composite indexes for conversation queries at scale:
+    # - (to_agent_id, read_at, created_at) - unread inbox queries
+    # - (from_agent_id, to_agent_id, created_at) - conversation threads
+    __table_args__ = (
+        Index("ix_dm_inbox_unread", "to_agent_id", "read_at", "created_at"),
+        Index("ix_dm_conversation", "from_agent_id", "to_agent_id", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     from_agent_id: Mapped[str] = mapped_column(String(255), ForeignKey("agents.agent_id"), index=True)
@@ -230,6 +250,12 @@ class FloorReplyModel(Base):
 
     __tablename__ = "floor_replies"
 
+    # Composite index for paginated reply fetching (most common query)
+    # - (parent_id, created_at) - replies for a message sorted by time
+    __table_args__ = (
+        Index("ix_floor_replies_parent_created", "parent_id", "created_at"),
+    )
+
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Parent reference (indexed for fast lookups)
@@ -251,6 +277,98 @@ class FloorReplyModel(Base):
     # Relationships
     agent: Mapped["AgentModel"] = relationship()
     parent: Mapped["FloorMessageModel"] = relationship(back_populates="replies")
+
+
+# =============================================================================
+# Scalability Cache Tables
+# =============================================================================
+
+
+class MarketDiscussionStatsModel(Base):
+    """
+    Cached stats for market discussions. Updated periodically by worker.
+    Avoids expensive COUNT(*) queries on every market page load.
+    """
+
+    __tablename__ = "market_discussion_stats"
+
+    market_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+    # Cached counts
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    unique_agents: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Activity tracking
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    last_reply_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Cache metadata
+    calculated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class HotMessagesModel(Base):
+    """
+    Cache of trending/hot floor messages. Updated periodically by worker.
+    Scored by: reply_count + recency bonus. Enables O(1) hot feed queries.
+    """
+
+    __tablename__ = "hot_messages"
+
+    # Composite index for hot feed query
+    __table_args__ = (
+        Index("ix_hot_messages_score", "score", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    message_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("floor_messages.id", ondelete="CASCADE"),
+        unique=True,
+        index=True
+    )
+
+    # Hotness score (higher = hotter)
+    score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+
+    # Denormalized fields for fast display (no JOIN needed)
+    agent_id: Mapped[str] = mapped_column(String(255))
+    agent_name: Mapped[str] = mapped_column(String(255))
+    message_type: Mapped[str] = mapped_column(String(50))
+    content_preview: Mapped[str] = mapped_column(String(280))  # Tweet-length preview
+    market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    # Cache metadata
+    calculated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AgentActivityStatsModel(Base):
+    """
+    Cached activity stats per agent. Updated on write operations.
+    Enables fast agent profile queries without COUNT(*) aggregations.
+    """
+
+    __tablename__ = "agent_activity_stats"
+
+    agent_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+    # Floor activity
+    floor_message_count: Mapped[int] = mapped_column(Integer, default=0)
+    floor_reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_replies_received: Mapped[int] = mapped_column(Integer, default=0)
+
+    # DM activity
+    dm_sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    dm_received_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Engagement metrics
+    markets_discussed: Mapped[int] = mapped_column(Integer, default=0)
+    unique_interactions: Mapped[int] = mapped_column(Integer, default=0)  # Unique agents interacted with
+
+    # Cache metadata
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # =============================================================================
@@ -550,3 +668,46 @@ class MarketFeedResponse(BaseModel):
     messages: list[FloorMessageResponse]
     total: int
     has_more: bool
+
+
+# =============================================================================
+# Scalability Cache Schemas
+# =============================================================================
+
+
+class HotMessageResponse(BaseModel):
+    """Schema for a hot/trending message (denormalized for fast display)."""
+    id: UUID
+    message_id: UUID
+    score: float
+    agent_id: str
+    agent_name: str
+    message_type: str
+    content_preview: str
+    market_id: str | None
+    reply_count: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MarketDiscussionStatsResponse(BaseModel):
+    """Schema for market discussion statistics."""
+    market_id: str
+    message_count: int
+    reply_count: int
+    unique_agents: int
+    last_message_at: datetime | None
+    last_reply_at: datetime | None
+
+
+class AgentActivityStatsResponse(BaseModel):
+    """Schema for agent activity statistics."""
+    agent_id: str
+    floor_message_count: int
+    floor_reply_count: int
+    total_replies_received: int
+    dm_sent_count: int
+    dm_received_count: int
+    markets_discussed: int
+    unique_interactions: int
