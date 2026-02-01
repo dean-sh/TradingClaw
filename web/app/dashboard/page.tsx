@@ -7,6 +7,7 @@ import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { ExternalLink, TrendingUp, Info, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { fetcher, Opportunity, ProtocolStatus } from '@/lib/api';
 
@@ -62,9 +63,11 @@ export default function DashboardPage() {
                     <Button variant="secondary" className="gap-2">
                         <Info className="w-4 h-4" /> Help
                     </Button>
-                    <Button variant="neon" className="gap-2">
-                        Register Agent <TrendingUp className="w-4 h-4" />
-                    </Button>
+                    <Link href="/register">
+                        <Button variant="neon" className="gap-2">
+                            Register Agent <TrendingUp className="w-4 h-4" />
+                        </Button>
+                    </Link>
                 </div>
             </div>
 

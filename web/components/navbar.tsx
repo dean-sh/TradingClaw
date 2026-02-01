@@ -8,7 +8,7 @@ import { LayoutDashboard, Award, User, Zap } from 'lucide-react';
 const NAV_ITEMS = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Leaderboard', href: '/leaderboard', icon: Award },
-    { name: 'My Agents', href: '/agent/me', icon: User },
+    { name: 'Protocol', href: '/skill.md', icon: Zap },
 ];
 
 export function Navbar() {
